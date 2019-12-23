@@ -1,8 +1,8 @@
-use std::result;
+use std::collections::HashMap;
 use std::error;
 use std::fmt;
-use std::collections::HashMap;
-use std::sync::{Arc, Weak, Mutex, MutexGuard};
+use std::result;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use crate::snowflake::Snowflake;
 
@@ -12,20 +12,29 @@ type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
 
 pub struct Store<T, U>
-    where U: StoreBackend<T>
+where
+    U: StoreBackend<T>,
 {
     backend: U,
     refs: Mutex<HashMap<Snowflake, WeakLockedRef<T>>>,
 }
 
 impl<T, U> Store<T, U>
-    where U: StoreBackend<T>
+where
+    U: StoreBackend<T>,
 {
     pub fn new(backend: U) -> Store<T, U> {
-        Store { backend, refs: Mutex::new(HashMap::new()) }
+        Store {
+            backend,
+            refs: Mutex::new(HashMap::new()),
+        }
     }
 
-    fn load_new_ref(&self, map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<T>>>, id: &Snowflake) -> Result<StrongLockedRef<T>> {
+    fn load_new_ref(
+        &self,
+        map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<T>>>,
+        id: &Snowflake,
+    ) -> Result<StrongLockedRef<T>> {
         let obj = self.backend.load(id)?;
         let r = Arc::new(Mutex::new(obj));
         map.insert(*id, Arc::downgrade(&r));
@@ -34,16 +43,16 @@ impl<T, U> Store<T, U>
 
     pub fn load(&self, id: &Snowflake) -> Result<StrongLockedRef<T>> {
         if !self.backend.exists(id)? {
-            return Err(Box::new(NotFoundError { id: *id })); 
+            return Err(Box::new(NotFoundError { id: *id }));
         }
 
         let mut map = self.refs.lock().unwrap();
         let r: StrongLockedRef<T> = match map.get(id) {
             None => self.load_new_ref(&mut map, id)?,
             Some(wk) => match wk.upgrade() {
-                None => self.load_new_ref(&mut map, id)?, 
+                None => self.load_new_ref(&mut map, id)?,
                 Some(strong) => strong,
-            }
+            },
         };
 
         Ok(r)
@@ -66,12 +75,12 @@ pub trait StoreBackend<T> {
 
 #[derive(Debug, Clone)]
 pub struct NotFoundError {
-    id: Snowflake
+    id: Snowflake,
 }
 
 impl NotFoundError {
     pub fn new(id: &Snowflake) -> NotFoundError {
-        NotFoundError{ id: *id }
+        NotFoundError { id: *id }
     }
 }
 

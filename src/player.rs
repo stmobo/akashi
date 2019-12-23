@@ -2,27 +2,48 @@ use std::error;
 use std::fmt;
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::{Arc, RwLock};
 
+use crate::card::Inventory;
 use crate::resources::{ResourceCount, ResourceID};
-use crate::store::{Store, StoreBackend, NotFoundError};
 use crate::snowflake::Snowflake;
+use crate::store::{NotFoundError, Store, StoreBackend};
 
 #[derive(Clone)]
 pub struct Player {
     id: Snowflake,
     resources: Vec<u64>,
+    inventory: Inventory,
+    locked_cards: Inventory,
 }
 
 impl Player {
-    pub fn new(id: Snowflake, resources: Vec<u64>) -> Player {
-        Player { id, resources }
+    pub fn new(
+        id: Snowflake,
+        resources: Vec<u64>,
+        inventory: Inventory,
+        locked_cards: Inventory,
+    ) -> Player {
+        Player {
+            id,
+            resources,
+            inventory,
+            locked_cards,
+        }
     }
 
     pub fn id(&self) -> Snowflake {
-        return self.id;
+        self.id
+    }
+
+    pub fn inventory(&mut self) -> &mut Inventory {
+        &mut self.inventory
+    }
+
+    pub fn locked_cards(&mut self) -> &mut Inventory {
+        &mut self.locked_cards
     }
 
     pub fn get_resource(&self, id: ResourceID) -> Option<ResourceCount> {
@@ -38,6 +59,14 @@ impl Player {
             Some(r) => *r = count.1,
         }
     }
+}
+
+pub trait PlayerMetadataProvider {
+    type Metadata;
+
+    fn get(&self, id: &Snowflake) -> Result<Self::Metadata, Box<dyn Error>>;
+    fn set(&self, id: &Snowflake, data: &Self::Metadata) -> Result<(), Box<dyn Error>>;
+    fn clear(&self, id: &Snowflake) -> Result<(), Box<dyn Error>>;
 }
 
 type PlayerDataStore<T> = Store<Player, T>;
@@ -79,14 +108,19 @@ impl StoreBackend<Player> for LocalDataBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
     use crate::snowflake::SnowflakeGenerator;
+    use std::thread;
 
     #[test]
     fn test_player_exists() {
         let mut snowflake_gen = SnowflakeGenerator::new();
         let backend = LocalDataBackend::new();
-        let pl = Player::new(snowflake_gen.generate(0, 0), vec![0]);
+        let pl = Player::new(
+            snowflake_gen.generate(0, 0),
+            vec![0],
+            Inventory::empty(0),
+            Inventory::empty(0),
+        );
 
         backend.store(&pl.id, &pl).unwrap();
         let store = PlayerDataStore::new(backend);
@@ -110,7 +144,12 @@ mod tests {
     fn test_load_player() {
         let mut snowflake_gen = SnowflakeGenerator::new();
         let backend = LocalDataBackend::new();
-        let pl = Player::new(snowflake_gen.generate(0, 0), vec![1, 2, 3]);
+        let pl = Player::new(
+            snowflake_gen.generate(0, 0),
+            vec![0, 1, 2],
+            Inventory::empty(0),
+            Inventory::empty(0),
+        );
 
         backend.store(&pl.id, &pl).unwrap();
         let store = PlayerDataStore::new(backend);
@@ -128,7 +167,12 @@ mod tests {
     fn test_concurrent_load() {
         let mut snowflake_gen = SnowflakeGenerator::new();
         let backend = LocalDataBackend::new();
-        let pl = Player::new(snowflake_gen.generate(0, 0), vec![1, 2, 3]);
+        let pl = Player::new(
+            snowflake_gen.generate(0, 0),
+            vec![0, 1, 2],
+            Inventory::empty(0),
+            Inventory::empty(0),
+        );
 
         backend.store(&pl.id, &pl).unwrap();
         let store = Arc::new(PlayerDataStore::new(backend));
@@ -139,7 +183,7 @@ mod tests {
             let wrapper_1 = store2.load(&id2).unwrap();
             wrapper_1
         });
-        
+
         let wrapper_2 = store.load(&pl.id()).unwrap();
         let wrapper_1 = handle.join().unwrap();
 
@@ -155,7 +199,12 @@ mod tests {
         let backend = LocalDataBackend::new();
         let store = PlayerDataStore::new(backend);
         let id = snowflake_gen.generate(0, 0);
-        store.store(&id, &Player::new(id, vec![1, 2, 3])).unwrap();
+        store
+            .store(
+                &id,
+                &Player::new(id, vec![1, 2, 3], Inventory::empty(0), Inventory::empty(0)),
+            )
+            .unwrap();
 
         let wrapper = store.load(&id).unwrap();
         let pl_copy = wrapper.lock().unwrap();
