@@ -1,5 +1,5 @@
 pub type ResourceID = u64;
-pub type ResourceCount = (ResourceID, u64);
+pub type ResourceCount = u64;
 
 pub struct ResourceType {
     id: ResourceID,

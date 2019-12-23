@@ -1,10 +1,7 @@
-use std::collections::HashMap;
 use std::error;
 use std::result;
-use std::sync::{Arc, Mutex, Weak};
 
 use crate::snowflake::Snowflake;
-use crate::store::{Store, StoreBackend};
 
 type Result<T> = result::Result<T, Box<dyn error::Error>>;
 

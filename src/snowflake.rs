@@ -43,14 +43,21 @@ pub struct SnowflakeGenerator {
     epoch: SystemTime,
     last_timestamp: u64,
     sequence: u64,
+    group_id: u64,
+    worker_id: u64,
 }
 
 impl SnowflakeGenerator {
-    pub fn new() -> SnowflakeGenerator {
+    pub fn new(group_id: u64, worker_id: u64) -> SnowflakeGenerator {
+        assert!(group_id <= MAX_GROUP_ID, "Invalid group ID");
+        assert!(worker_id <= MAX_WORKER_ID, "Invalid worker ID");
+
         SnowflakeGenerator {
             epoch: SystemTime::UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS),
             last_timestamp: 0,
             sequence: 0,
+            group_id,
+            worker_id,
         }
     }
 
@@ -61,15 +68,12 @@ impl SnowflakeGenerator {
         }
     }
 
-    pub fn generate(&mut self, group_id: u64, worker_id: u64) -> Snowflake {
-        assert!(group_id <= MAX_GROUP_ID, "Invalid group ID");
-        assert!(worker_id <= MAX_WORKER_ID, "Invalid worker ID");
-
+    pub fn generate(&mut self) -> Snowflake {
         let cur_timestamp = self.get_current_timestamp();
         if self.last_timestamp > cur_timestamp {
             // Time is moving backwards-- sleep until last_timestamp and attempt to generate again
             thread::sleep(Duration::from_millis(self.last_timestamp - cur_timestamp));
-            return self.generate(group_id, worker_id);
+            return self.generate();
         }
 
         if self.last_timestamp == cur_timestamp {
@@ -79,7 +83,7 @@ impl SnowflakeGenerator {
                 // Sequence overrun
                 self.sequence = (1 << (SEQUENCE_BITS + 1)) - 1;
                 thread::sleep(Duration::from_millis(1));
-                return self.generate(group_id, worker_id);
+                return self.generate();
             }
         } else {
             self.sequence = 0;
@@ -88,8 +92,8 @@ impl SnowflakeGenerator {
         self.last_timestamp = cur_timestamp;
 
         ((cur_timestamp << TIMESTAMP_SHIFT)
-            | (group_id << GROUP_ID_SHIFT)
-            | (worker_id << WORKER_ID_SHIFT)
+            | (self.group_id << GROUP_ID_SHIFT)
+            | (self.worker_id << WORKER_ID_SHIFT)
             | self.sequence)
     }
 }
