@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
+use serde::{Serialize, Deserialize};
+
 use crate::card::Inventory;
 use crate::metadata::MetadataAttached;
 use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
     id: Snowflake,
     resources: HashMap<ResourceID, u64>,

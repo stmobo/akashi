@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
+use serde::{Serialize, Deserialize};
+
 use crate::metadata::MetadataAttached;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Card {
     id: Snowflake,
     type_id: Snowflake,
@@ -32,7 +34,7 @@ impl Card {
 
 impl MetadataAttached for Card {}
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Inventory {
     id: Snowflake,
     cards: HashMap<Snowflake, Card>,
@@ -88,5 +90,31 @@ mod tests {
 
         assert_ne!(card1.id(), card2.id());
         assert_eq!(card1.type_id(), card2.type_id());
+    }
+
+    #[test]
+    fn test_inv() {
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let type_id = snowflake_gen.generate();
+
+        let mut inv = Inventory::empty(snowflake_gen.generate());
+
+        assert_eq!(inv.len(), 0);
+        assert!(inv.is_empty());
+
+        let card = Card::generate(&mut snowflake_gen, type_id);
+        let id = card.id();
+
+        let res = inv.insert(card.clone());
+        assert!(res.is_none());
+        assert!(inv.contains_key(id));
+        assert_eq!(inv.len(), 1);
+
+        assert!(inv.get(id).is_some());
+        assert_eq!(inv.get(id).unwrap().id(), id);
+
+        let res = inv.remove(id);
+        assert!(res.is_some());
+        assert_eq!(res.unwrap().id(), id);
     }
 }
