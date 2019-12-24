@@ -11,11 +11,18 @@ type Result<T> = result::Result<T, Box<dyn error::Error>>;
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
 
+pub trait SharedStore<T, U>
+where
+    U: StoreBackend<T>,
+{
+    fn get_store<'a>(&'a self) -> &'a Store<T, U>;
+}
+
 pub struct Store<T, U>
 where
     U: StoreBackend<T>,
 {
-    backend: U,
+    backend: Arc<U>,
     refs: Mutex<HashMap<Snowflake, WeakLockedRef<T>>>,
 }
 
@@ -23,7 +30,7 @@ impl<T, U> Store<T, U>
 where
     U: StoreBackend<T>,
 {
-    pub fn new(backend: U) -> Store<T, U> {
+    pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
             refs: Mutex::new(HashMap::new()),
@@ -177,7 +184,7 @@ mod tests {
     #[test]
     fn test_exists() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = MockStoreBackend::new();
+        let backend = Arc::new(MockStoreBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
         backend.store(data.id(), &data).unwrap();
@@ -191,7 +198,7 @@ mod tests {
     #[test]
     fn test_load_nonexistent() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = MockStoreBackend::new();
+        let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
         let result = store.load(&snowflake_gen.generate());
 
@@ -201,7 +208,7 @@ mod tests {
     #[test]
     fn test_load() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = MockStoreBackend::new();
+        let backend = Arc::new(MockStoreBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
         backend.store(data.id(), &data).unwrap();
@@ -218,7 +225,7 @@ mod tests {
     #[test]
     fn test_concurrent_load() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = MockStoreBackend::new();
+        let backend = Arc::new(MockStoreBackend::new());
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
 
@@ -245,7 +252,7 @@ mod tests {
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
 
-        let backend = MockStoreBackend::new();
+        let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
         store.store(data.id(), &data).unwrap();
 

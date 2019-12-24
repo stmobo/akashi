@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::metadata::MetadataAttached;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
@@ -48,6 +48,10 @@ impl Inventory {
         }
     }
 
+    pub fn id(&self) -> &Snowflake {
+        &self.id
+    }
+
     pub fn insert(&mut self, card: Card) -> Option<Card> {
         self.cards.insert(card.id, card)
     }
@@ -68,8 +72,8 @@ impl Inventory {
         self.cards.len()
     }
 
-    pub fn iter(&self) -> impl Iterator + '_ {
-        self.cards.iter()
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a Card> + '_ {
+        self.cards.values()
     }
 
     pub fn get<'a>(&'a self, id: &Snowflake) -> Option<&'a Card> {
@@ -78,8 +82,6 @@ impl Inventory {
 }
 
 mod tests {
-    use super::*;
-
     #[test]
     fn test_card_generate() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);

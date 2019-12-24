@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::card::Inventory;
 use crate::metadata::MetadataAttached;
@@ -39,30 +39,47 @@ impl Player {
         }
     }
 
-    pub fn id(&self) -> Snowflake {
-        self.id
+    pub fn id(&self) -> &Snowflake {
+        &self.id
     }
 
-    pub fn inventory(&mut self) -> &mut Inventory {
+    pub fn inventory(&self) -> &Inventory {
+        &self.inventory
+    }
+
+    pub fn inventory_mut(&mut self) -> &mut Inventory {
         &mut self.inventory
     }
 
-    pub fn locked_cards(&mut self) -> &mut Inventory {
+    pub fn locked_inventory(&self) -> &Inventory {
+        &self.locked_cards
+    }
+
+    pub fn locked_inventory_mut(&mut self) -> &mut Inventory {
         &mut self.locked_cards
     }
 
-    pub fn get_resource(&self, id: &ResourceID) -> Option<u64> {
+    pub fn resources(&self) -> &HashMap<ResourceID, ResourceCount> {
+        &self.resources
+    }
+
+    pub fn resources_mut(&mut self) -> &mut HashMap<ResourceID, ResourceCount> {
+        &mut self.resources
+    }
+
+    pub fn get_resource(&self, id: &ResourceID) -> Option<ResourceCount> {
         match self.resources.get(id) {
             None => None,
             Some(val) => Some(*val),
         }
     }
 
-    pub fn set_resource(&mut self, id: &ResourceID, count: &ResourceCount) {
-        match self.resources.get_mut(id) {
-            None => panic!("Invalid resource ID"),
-            Some(r) => *r = *count,
-        }
+    pub fn set_resource(
+        &mut self,
+        id: &ResourceID,
+        count: &ResourceCount,
+    ) -> Option<ResourceCount> {
+        self.resources.insert(*id, *count)
     }
 }
 
