@@ -82,6 +82,12 @@ impl Inventory {
 }
 
 mod tests {
+    #[allow(unused_imports)]
+    use super::*;
+
+    #[allow(unused_imports)]
+    use crate::snowflake::SnowflakeGenerator;
+
     #[test]
     fn test_card_generate() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
