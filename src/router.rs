@@ -20,18 +20,14 @@ where
     let id: Snowflake = path.0;
     let store: &Store<Player, U> = shared_store.get_store();
 
-    let exists = store
-        .exists(&id)
-        .map_err(|e| error::ErrorInternalServerError(e))?;
+    let exists = store.exists(id).map_err(error::ErrorInternalServerError)?;
     if !exists {
         return Ok(HttpResponse::NotFound()
             .content_type("plain/text")
             .body(format!("Could not find player {}", id)));
     }
 
-    let pl_ref = store
-        .load(&id)
-        .map_err(|e| error::ErrorInternalServerError(e))?;
+    let pl_ref = store.load(id).map_err(error::ErrorInternalServerError)?;
     {
         let pl = pl_ref.lock().unwrap();
         let r: &Player = pl.deref();
@@ -51,18 +47,14 @@ where
     let id: Snowflake = path.0;
     let store: &Store<Player, U> = shared_store.get_store();
 
-    let exists = store
-        .exists(&id)
-        .map_err(|e| error::ErrorInternalServerError(e))?;
+    let exists = store.exists(id).map_err(error::ErrorInternalServerError)?;
     if !exists {
         return Ok(HttpResponse::NotFound()
             .content_type("plain/text")
             .body(format!("Could not find player {}", id)));
     }
 
-    store
-        .delete(&id)
-        .map_err(|e| error::ErrorInternalServerError(e))?;
+    store.delete(id).map_err(error::ErrorInternalServerError)?;
     Ok(HttpResponse::NoContent().finish())
 }
 
@@ -77,8 +69,8 @@ where
     let pl = Player::empty(snowflake_gen.deref_mut());
 
     store
-        .store(pl.id(), &pl)
-        .map_err(|e| error::ErrorInternalServerError(e))?;
+        .store(*pl.id(), &pl)
+        .map_err(error::ErrorInternalServerError)?;
     Ok(HttpResponse::Ok().json(pl))
 }
 

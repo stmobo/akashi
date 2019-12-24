@@ -40,21 +40,21 @@ where
     fn load_new_ref(
         &self,
         map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<T>>>,
-        id: &Snowflake,
+        id: Snowflake,
     ) -> Result<StrongLockedRef<T>> {
         let obj = self.backend.load(id)?;
         let r = Arc::new(Mutex::new(obj));
-        map.insert(*id, Arc::downgrade(&r));
+        map.insert(id, Arc::downgrade(&r));
         Ok(r)
     }
 
-    pub fn load(&self, id: &Snowflake) -> Result<StrongLockedRef<T>> {
+    pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<T>> {
         if !self.backend.exists(id)? {
-            return Err(Box::new(NotFoundError { id: *id }));
+            return Err(Box::new(NotFoundError { id }));
         }
 
         let mut map = self.refs.lock().unwrap();
-        let r: StrongLockedRef<T> = match map.get(id) {
+        let r: StrongLockedRef<T> = match map.get(&id) {
             None => self.load_new_ref(&mut map, id)?,
             Some(wk) => match wk.upgrade() {
                 None => self.load_new_ref(&mut map, id)?,
@@ -65,24 +65,24 @@ where
         Ok(r)
     }
 
-    pub fn store(&self, id: &Snowflake, object: &T) -> Result<()> {
+    pub fn store(&self, id: Snowflake, object: &T) -> Result<()> {
         self.backend.store(id, object)
     }
 
-    pub fn exists(&self, id: &Snowflake) -> Result<bool> {
+    pub fn exists(&self, id: Snowflake) -> Result<bool> {
         self.backend.exists(id)
     }
 
-    pub fn delete(&self, id: &Snowflake) -> Result<()> {
+    pub fn delete(&self, id: Snowflake) -> Result<()> {
         self.backend.delete(id)
     }
 }
 
 pub trait StoreBackend<T> {
-    fn load(&self, id: &Snowflake) -> Result<T>;
-    fn exists(&self, id: &Snowflake) -> Result<bool>;
-    fn store(&self, id: &Snowflake, object: &T) -> Result<()>;
-    fn delete(&self, id: &Snowflake) -> Result<()>;
+    fn load(&self, id: Snowflake) -> Result<T>;
+    fn exists(&self, id: Snowflake) -> Result<bool>;
+    fn store(&self, id: Snowflake, object: &T) -> Result<()>;
+    fn delete(&self, id: Snowflake) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -91,8 +91,8 @@ pub struct NotFoundError {
 }
 
 impl NotFoundError {
-    pub fn new(id: &Snowflake) -> NotFoundError {
-        NotFoundError { id: *id }
+    pub fn new(id: Snowflake) -> NotFoundError {
+        NotFoundError { id }
     }
 }
 

@@ -67,19 +67,15 @@ impl Player {
         &mut self.resources
     }
 
-    pub fn get_resource(&self, id: &ResourceID) -> Option<ResourceCount> {
-        match self.resources.get(id) {
+    pub fn get_resource(&self, id: ResourceID) -> Option<ResourceCount> {
+        match self.resources.get(&id) {
             None => None,
             Some(val) => Some(*val),
         }
     }
 
-    pub fn set_resource(
-        &mut self,
-        id: &ResourceID,
-        count: &ResourceCount,
-    ) -> Option<ResourceCount> {
-        self.resources.insert(*id, *count)
+    pub fn set_resource(&mut self, id: ResourceID, count: ResourceCount) -> Option<ResourceCount> {
+        self.resources.insert(id, count)
     }
 }
 

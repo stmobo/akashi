@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 pub type Snowflake = u64;
 
-pub const EPOCH_SECONDS: u64 = 1544832000;
+pub const EPOCH_SECONDS: u64 = 1_544_832_000;
 
 const WORKER_ID_BITS: usize = 5;
 const GROUP_ID_BITS: usize = 5;

@@ -18,13 +18,13 @@ impl ResourceType {
         self.id
     }
 
-    pub fn name<'a>(&'a self) -> &'a str {
+    pub fn name(&self) -> &str {
         self.name.as_str()
     }
 }
 
 pub trait ResourceDataStore {
-    fn get<'a>(&'a self, id: ResourceID) -> Option<&'a ResourceType>;
+    fn get(&self, id: ResourceID) -> Option<&ResourceType>;
 }
 
 pub struct LocalResourceStore {
@@ -32,7 +32,7 @@ pub struct LocalResourceStore {
 }
 
 impl ResourceDataStore for LocalResourceStore {
-    fn get<'a>(&'a self, id: ResourceID) -> Option<&'a ResourceType> {
+    fn get(&self, id: ResourceID) -> Option<&ResourceType> {
         self.types.get(id as usize)
     }
 }

@@ -46,6 +46,12 @@ impl SharedLocalStore {
     }
 }
 
+impl Default for SharedLocalStore {
+    fn default() -> SharedLocalStore {
+        SharedLocalStore::new()
+    }
+}
+
 impl SharedStore<Player, LocalStoreBackend> for SharedLocalStore {
     fn get_store<'a>(&'a self) -> &'a Store<Player, LocalStoreBackend> {
         self.players()
@@ -80,6 +86,12 @@ impl LocalStoreBackend {
     }
 }
 
+impl Default for LocalStoreBackend {
+    fn default() -> LocalStoreBackend {
+        LocalStoreBackend::new()
+    }
+}
+
 #[derive(Clone)]
 struct StoredPlayer {
     id: Snowflake,
@@ -89,29 +101,29 @@ struct StoredPlayer {
 }
 
 impl StoreBackend<Player> for LocalStoreBackend {
-    fn exists(&self, id: &Snowflake) -> Result<bool> {
+    fn exists(&self, id: Snowflake) -> Result<bool> {
         let players = self.players.read().unwrap();
-        Ok(players.contains_key(id))
+        Ok(players.contains_key(&id))
     }
 
-    fn load(&self, id: &Snowflake) -> Result<Player> {
+    fn load(&self, id: Snowflake) -> Result<Player> {
         let stored: StoredPlayer;
 
         {
             let players = self.players.read().unwrap();
-            if let Some(s) = players.get(id) {
+            if let Some(s) = players.get(&id) {
                 stored = s.clone();
             } else {
                 return Err(Box::new(NotFoundError::new(id)));
             }
         }
 
-        let inv = match StoreBackend::<Inventory>::load(self, &stored.inv) {
+        let inv = match StoreBackend::<Inventory>::load(self, stored.inv) {
             Err(_e) => Inventory::empty(stored.inv),
             Ok(v) => v,
         };
 
-        let locked = match StoreBackend::<Inventory>::load(self, &stored.locked_inv) {
+        let locked = match StoreBackend::<Inventory>::load(self, stored.locked_inv) {
             Err(_e) => Inventory::empty(stored.locked_inv),
             Ok(v) => v,
         };
@@ -119,83 +131,83 @@ impl StoreBackend<Player> for LocalStoreBackend {
         Ok(Player::new(stored.id, stored.resources, inv, locked))
     }
 
-    fn store(&self, id: &Snowflake, data: &Player) -> Result<()> {
-        StoreBackend::<Inventory>::store(self, data.inventory().id(), data.inventory())?;
+    fn store(&self, id: Snowflake, data: &Player) -> Result<()> {
+        StoreBackend::<Inventory>::store(self, *data.inventory().id(), data.inventory())?;
         StoreBackend::<Inventory>::store(
             self,
-            data.locked_inventory().id(),
+            *data.locked_inventory().id(),
             data.locked_inventory(),
         )?;
 
         let stored = StoredPlayer {
-            id: *id,
+            id,
             resources: data.resources().clone(),
             inv: *data.inventory().id(),
             locked_inv: *data.locked_inventory().id(),
         };
 
         let mut players = self.players.write().unwrap();
-        players.insert(*id, stored);
+        players.insert(id, stored);
 
         Ok(())
     }
 
-    fn delete(&self, id: &Snowflake) -> Result<()> {
+    fn delete(&self, id: Snowflake) -> Result<()> {
         let stored: StoredPlayer;
 
         {
             let mut players = self.players.write().unwrap();
-            stored = match players.remove(id) {
+            stored = match players.remove(&id) {
                 None => return Ok(()),
                 Some(v) => v,
             };
         }
 
-        StoreBackend::<Inventory>::delete(self, &stored.inv)?;
-        StoreBackend::<Inventory>::delete(self, &stored.locked_inv)?;
+        StoreBackend::<Inventory>::delete(self, stored.inv)?;
+        StoreBackend::<Inventory>::delete(self, stored.locked_inv)?;
         Ok(())
     }
 }
 
 impl StoreBackend<Card> for LocalStoreBackend {
-    fn exists(&self, id: &Snowflake) -> Result<bool> {
+    fn exists(&self, id: Snowflake) -> Result<bool> {
         let cards = self.cards.read().unwrap();
-        Ok(cards.contains_key(id))
+        Ok(cards.contains_key(&id))
     }
 
-    fn load(&self, id: &Snowflake) -> Result<Card> {
+    fn load(&self, id: Snowflake) -> Result<Card> {
         let cards = self.cards.read().unwrap();
-        match cards.get(id) {
+        match cards.get(&id) {
             None => Err(Box::new(NotFoundError::new(id))),
             Some(card) => Ok(card.clone()),
         }
     }
 
-    fn store(&self, id: &Snowflake, data: &Card) -> Result<()> {
+    fn store(&self, id: Snowflake, data: &Card) -> Result<()> {
         let mut cards = self.cards.write().unwrap();
-        cards.insert(*id, data.clone());
+        cards.insert(id, data.clone());
         Ok(())
     }
 
-    fn delete(&self, id: &Snowflake) -> Result<()> {
+    fn delete(&self, id: Snowflake) -> Result<()> {
         let mut cards = self.cards.write().unwrap();
-        cards.remove(id);
+        cards.remove(&id);
         Ok(())
     }
 }
 
 impl StoreBackend<Inventory> for LocalStoreBackend {
-    fn exists(&self, id: &Snowflake) -> Result<bool> {
+    fn exists(&self, id: Snowflake) -> Result<bool> {
         let inventories = self.inventories.read().unwrap();
-        Ok(inventories.contains_key(id))
+        Ok(inventories.contains_key(&id))
     }
 
-    fn load(&self, id: &Snowflake) -> Result<Inventory> {
+    fn load(&self, id: Snowflake) -> Result<Inventory> {
         let map = self.inventories.read().unwrap();
-        match map.get(id) {
+        match map.get(&id) {
             None => Err(Box::new(NotFoundError::new(id))),
             Some(v) => {
-                let mut inv = Inventory::empty(*id);
+                let mut inv = Inventory::empty(id);
                 let cards = self.cards.read().unwrap();
 
                 for card_id in v.iter() {
@@ -209,7 +221,7 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
         }
     }
 
-    fn store(&self, id: &Snowflake, data: &Inventory) -> Result<()> {
+    fn store(&self, id: Snowflake, data: &Inventory) -> Result<()> {
         {
             let mut cards = self.cards.write().unwrap();
             for card in data.iter() {
@@ -219,15 +231,15 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
 
         let mut inventories = self.inventories.write().unwrap();
         let ids: Vec<Snowflake> = data.iter().map(|x| *x.id()).collect();
-        inventories.insert(*id, ids);
+        inventories.insert(id, ids);
         Ok(())
     }
 
-    fn delete(&self, id: &Snowflake) -> Result<()> {
+    fn delete(&self, id: Snowflake) -> Result<()> {
         let inv: Vec<Snowflake>;
         {
             let mut inventories = self.inventories.write().unwrap();
-            inv = match inventories.remove(id) {
+            inv = match inventories.remove(&id) {
                 None => return Ok(()),
                 Some(v) => v,
             };
@@ -258,7 +270,7 @@ mod tests {
         let store = Arc::new(SharedLocalStore::new());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let type_id = snowflake_gen.generate();
-        let type2_id = snowflake_gen.generate();
+        let _type2_id = snowflake_gen.generate();
 
         let s2 = store.clone();
         let thread_2_typeid = type_id.clone();

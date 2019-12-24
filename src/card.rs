@@ -56,12 +56,12 @@ impl Inventory {
         self.cards.insert(card.id, card)
     }
 
-    pub fn contains_key(&self, id: &Snowflake) -> bool {
-        self.cards.contains_key(id)
+    pub fn contains_key(&self, id: Snowflake) -> bool {
+        self.cards.contains_key(&id)
     }
 
-    pub fn remove(&mut self, id: &Snowflake) -> Option<Card> {
-        self.cards.remove(id)
+    pub fn remove(&mut self, id: Snowflake) -> Option<Card> {
+        self.cards.remove(&id)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -76,8 +76,8 @@ impl Inventory {
         self.cards.values()
     }
 
-    pub fn get<'a>(&'a self, id: &Snowflake) -> Option<&'a Card> {
-        self.cards.get(id)
+    pub fn get(&self, id: Snowflake) -> Option<&Card> {
+        self.cards.get(&id)
     }
 }
 
