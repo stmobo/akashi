@@ -76,6 +76,10 @@ where
     pub fn delete(&self, id: Snowflake) -> Result<()> {
         self.backend.delete(id)
     }
+
+    pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        self.backend.keys(page, limit)
+    }
 }
 
 pub trait StoreBackend<T> {
@@ -83,6 +87,7 @@ pub trait StoreBackend<T> {
     fn exists(&self, id: Snowflake) -> Result<bool>;
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
     fn delete(&self, id: Snowflake) -> Result<()>;
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
 }
 
 #[derive(Debug, Clone)]

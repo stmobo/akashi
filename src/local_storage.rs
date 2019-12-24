@@ -167,6 +167,23 @@ impl StoreBackend<Player> for LocalStoreBackend {
         StoreBackend::<Inventory>::delete(self, stored.locked_inv)?;
         Ok(())
     }
+
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        let ids: Vec<Snowflake>;
+        let start_index = page * limit;
+
+        {
+            let players = self.players.read().unwrap();
+            ids = players
+                .keys()
+                .skip(start_index as usize)
+                .take(limit as usize)
+                .map(|x| *x)
+                .collect();
+        }
+
+        Ok(ids)
+    }
 }
 
 impl StoreBackend<Card> for LocalStoreBackend {
@@ -193,6 +210,23 @@ impl StoreBackend<Card> for LocalStoreBackend {
         let mut cards = self.cards.write().unwrap();
         cards.remove(&id);
         Ok(())
+    }
+
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        let ids: Vec<Snowflake>;
+        let start_index = page * limit;
+
+        {
+            let cards = self.cards.read().unwrap();
+            ids = cards
+                .keys()
+                .skip(start_index as usize)
+                .take(limit as usize)
+                .map(|x| *x)
+                .collect();
+        }
+
+        Ok(ids)
     }
 }
 
@@ -253,6 +287,23 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
         }
 
         Ok(())
+    }
+
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        let ids: Vec<Snowflake>;
+        let start_index = page * limit;
+
+        {
+            let inventories = self.inventories.read().unwrap();
+            ids = inventories
+                .keys()
+                .skip(start_index as usize)
+                .take(limit as usize)
+                .map(|x| *x)
+                .collect();
+        }
+
+        Ok(ids)
     }
 }
 
