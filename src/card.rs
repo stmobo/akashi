@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::metadata::MetadataAttached;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Card {
     id: Snowflake,
     type_id: Snowflake,
@@ -34,7 +34,7 @@ impl Card {
 
 impl MetadataAttached for Card {}
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Inventory {
     id: Snowflake,
     cards: HashMap<Snowflake, Card>,
@@ -115,13 +115,13 @@ mod tests {
 
         let res = inv.insert(card.clone());
         assert!(res.is_none());
-        assert!(inv.contains_key(id));
+        assert!(inv.contains_key(*id));
         assert_eq!(inv.len(), 1);
 
-        assert!(inv.get(id).is_some());
-        assert_eq!(inv.get(id).unwrap().id(), id);
+        assert!(inv.get(*id).is_some());
+        assert_eq!(inv.get(*id).unwrap().id(), id);
 
-        let res = inv.remove(id);
+        let res = inv.remove(*id);
         assert!(res.is_some());
         assert_eq!(res.unwrap().id(), id);
     }

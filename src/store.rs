@@ -18,12 +18,66 @@ where
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
 
+pub struct StoreHandle<T, U>
+where
+    U: StoreBackend<T>,
+{
+    backend: Arc<U>,
+    id: Snowflake,
+    object: Option<T>,
+}
+
+impl<T, U> StoreHandle<T, U>
+where
+    U: StoreBackend<T>,
+{
+    pub fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
+        StoreHandle {
+            backend,
+            id,
+            object,
+        }
+    }
+
+    pub fn get(&self) -> Option<&T> {
+        self.object.as_ref()
+    }
+
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        self.object.as_mut()
+    }
+
+    pub fn replace(&mut self, object: T) {
+        self.object = Some(object);
+    }
+
+    pub fn id(&self) -> &Snowflake {
+        &self.id
+    }
+
+    pub fn exists(&self) -> bool {
+        self.object.is_some()
+    }
+
+    pub fn store(&self) -> Result<()> {
+        match &self.object {
+            None => self.backend.delete(self.id),
+            Some(obj) => self.backend.store(self.id, &obj),
+        }
+    }
+
+    pub fn delete(&mut self) -> Result<()> {
+        self.object = None;
+        self.backend.delete(self.id)
+    }
+}
+
 pub struct Store<T, U>
 where
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
-    refs: Mutex<HashMap<Snowflake, WeakLockedRef<T>>>,
+    refs: Mutex<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
 }
 
 impl<T, U> Store<T, U>
@@ -39,22 +93,28 @@ where
 
     fn load_new_ref(
         &self,
-        map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<T>>>,
+        map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
         id: Snowflake,
-    ) -> Result<StrongLockedRef<T>> {
+    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
         let obj = self.backend.load(id)?;
-        let r = Arc::new(Mutex::new(obj));
+        let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, Some(obj));
+
+        let r = Arc::new(Mutex::new(handle));
         map.insert(id, Arc::downgrade(&r));
         Ok(r)
     }
 
-    pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<T>> {
+    pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
+        let mut map = self.refs.lock().unwrap();
+
         if !self.backend.exists(id)? {
-            return Err(Box::new(NotFoundError { id }));
+            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
+            let r = Arc::new(Mutex::new(handle));
+            map.insert(id, Arc::downgrade(&r));
+            return Ok(r);
         }
 
-        let mut map = self.refs.lock().unwrap();
-        let r: StrongLockedRef<T> = match map.get(&id) {
+        let r: StrongLockedRef<StoreHandle<T, U>> = match map.get(&id) {
             None => self.load_new_ref(&mut map, id)?,
             Some(wk) => match wk.upgrade() {
                 None => self.load_new_ref(&mut map, id)?,
@@ -65,16 +125,8 @@ where
         Ok(r)
     }
 
-    pub fn store(&self, id: Snowflake, object: &T) -> Result<()> {
-        self.backend.store(id, object)
-    }
-
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
         self.backend.exists(id)
-    }
-
-    pub fn delete(&self, id: Snowflake) -> Result<()> {
-        self.backend.delete(id)
     }
 
     pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
@@ -156,31 +208,46 @@ mod tests {
     }
 
     impl StoreBackend<MockStoredData> for MockStoreBackend {
-        fn exists(&self, id: &Snowflake) -> Result<bool> {
+        fn exists(&self, id: Snowflake) -> Result<bool> {
             let map = self.data.read().unwrap();
-            Ok(map.contains_key(id))
+            Ok(map.contains_key(&id))
         }
 
-        fn load(&self, id: &Snowflake) -> Result<MockStoredData> {
+        fn load(&self, id: Snowflake) -> Result<MockStoredData> {
             let map = self.data.read().unwrap();
-            match map.get(id) {
+            match map.get(&id) {
                 None => Err(Box::new(NotFoundError::new(id))),
                 Some(pl) => Ok(pl.clone()),
             }
         }
 
-        fn store(&self, id: &Snowflake, data: &MockStoredData) -> Result<()> {
+        fn store(&self, id: Snowflake, data: &MockStoredData) -> Result<()> {
             let mut map = self.data.write().unwrap();
-            map.insert(*id, data.clone());
+            map.insert(id, data.clone());
 
             Ok(())
         }
 
-        fn delete(&self, id: &Snowflake) -> Result<()> {
+        fn delete(&self, id: Snowflake) -> Result<()> {
             let mut map = self.data.write().unwrap();
-            map.remove(id);
+            map.remove(&id);
 
             Ok(())
+        }
+
+        fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+            let ids: Vec<Snowflake>;
+            let start_index = page * limit;
+
+            let data = self.data.read().unwrap();
+            ids = data
+                .keys()
+                .skip(start_index as usize)
+                .take(limit as usize)
+                .map(|x| *x)
+                .collect();
+
+            Ok(ids)
         }
     }
 
@@ -192,12 +259,12 @@ mod tests {
         let backend = Arc::new(MockStoreBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
-        backend.store(data.id(), &data).unwrap();
+        backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
 
         let id2 = snowflake_gen.generate();
-        assert!(store.exists(data.id()).unwrap());
-        assert!(!store.exists(&id2).unwrap());
+        assert!(store.exists(*data.id()).unwrap());
+        assert!(!store.exists(id2).unwrap());
     }
 
     #[test]
@@ -205,9 +272,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
-        let result = store.load(&snowflake_gen.generate());
+        let result = store.load(snowflake_gen.generate()).unwrap();
 
-        assert!(result.is_err());
+        let handle = result.lock().unwrap();
+        assert!(!handle.exists());
     }
 
     #[test]
@@ -216,13 +284,16 @@ mod tests {
         let backend = Arc::new(MockStoreBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
-        backend.store(data.id(), &data).unwrap();
+        backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
 
-        let wrapper = store.load(data.id()).unwrap();
-        let data_copy = wrapper.lock().unwrap();
+        let wrapper = store.load(*data.id()).unwrap();
+        let handle = wrapper.lock().unwrap();
 
-        assert_eq!(data.id(), data_copy.id());
+        assert!(handle.exists());
+        let data_copy = handle.get().unwrap();
+
+        assert_eq!(*data.id(), *data_copy.id());
         assert_eq!(data.field_a, data_copy.field_a);
         assert_eq!(data.field_b, data_copy.field_b);
     }
@@ -234,16 +305,16 @@ mod tests {
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
 
-        backend.store(data.id(), &data).unwrap();
+        backend.store(*data.id(), &data).unwrap();
         let store = Arc::new(MockStore::new(backend));
 
         let store2 = store.clone();
         let handle = thread::spawn(move || {
-            let wrapper_1 = store2.load(&id).unwrap();
+            let wrapper_1 = store2.load(id).unwrap();
             wrapper_1
         });
 
-        let wrapper_2 = store.load(data.id()).unwrap();
+        let wrapper_2 = store.load(*data.id()).unwrap();
         let wrapper_1 = handle.join().unwrap();
 
         // wrapper_1 and wrapper_2 should be Arcs pointing to the same
@@ -259,10 +330,19 @@ mod tests {
 
         let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
-        store.store(data.id(), &data).unwrap();
 
-        let wrapper = store.load(&id).unwrap();
-        let data_copy = wrapper.lock().unwrap();
+        {
+            let wrapper = store.load(*data.id()).unwrap();
+            let mut handle = wrapper.lock().unwrap();
+            assert!(!handle.exists());
+
+            handle.replace(data.clone());
+            handle.store().unwrap();
+        }
+
+        let wrapper = store.load(*data.id()).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let data_copy = handle.get().unwrap();
 
         assert_eq!(*data_copy.id(), id);
         assert_eq!(data.field_a, data_copy.field_a);

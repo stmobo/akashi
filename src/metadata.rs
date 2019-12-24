@@ -98,7 +98,7 @@ mod tests {
 
         fn get(&'a self, att: &TestAttachedType) -> Result<Self::Item> {
             match self.data.get(att.id()) {
-                None => Err(Box::new(NotFoundError::new(att.id()))),
+                None => Err(Box::new(NotFoundError::new(*att.id()))),
                 Some(data) => Ok(data),
             }
         }

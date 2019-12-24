@@ -7,7 +7,7 @@ use crate::metadata::MetadataAttached;
 use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Player {
     id: Snowflake,
     resources: HashMap<ResourceID, u64>,

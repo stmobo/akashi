@@ -178,7 +178,7 @@ impl StoreBackend<Player> for LocalStoreBackend {
                 .keys()
                 .skip(start_index as usize)
                 .take(limit as usize)
-                .map(|x| *x)
+                .copied()
                 .collect();
         }
 
@@ -222,7 +222,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
                 .keys()
                 .skip(start_index as usize)
                 .take(limit as usize)
-                .map(|x| *x)
+                .copied()
                 .collect();
         }
 
@@ -299,7 +299,7 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
                 .keys()
                 .skip(start_index as usize)
                 .take(limit as usize)
-                .map(|x| *x)
+                .copied()
                 .collect();
         }
 
@@ -331,27 +331,34 @@ mod tests {
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
             let mut pl = Player::empty(&mut snowflake_gen);
-            pl.set_resource(&0, &10);
+            pl.set_resource(0, 10);
 
             let card = Card::generate(&mut snowflake_gen, type_id);
             let card_id = card.id().clone();
 
             pl.inventory_mut().insert(card);
 
-            store.players().store(pl.id(), &pl).unwrap();
-            (pl.id().clone(), card_id)
+            let wrapper = store.players().load(*pl.id()).unwrap();
+            let mut handle = wrapper.lock().unwrap();
+
+            let pl_id = pl.id().clone();
+            handle.replace(pl);
+            handle.store().unwrap();
+
+            (pl_id, card_id)
         });
 
         thread::sleep(Duration::from_millis(50));
 
         let (player_id, card_id) = handle.join().unwrap();
-        let pl_ref = store.players().load(&player_id).unwrap();
-        let pl = pl_ref.lock().unwrap();
+        let pl_ref = store.players().load(player_id).unwrap();
+        let pl_handle = pl_ref.lock().unwrap();
+        let pl = pl_handle.get().unwrap();
 
-        assert!(pl.get_resource(&0).is_some());
-        assert_eq!(pl.get_resource(&0).unwrap(), 10);
+        assert!(pl.get_resource(0).is_some());
+        assert_eq!(pl.get_resource(0).unwrap(), 10);
 
-        let card = pl.inventory().get(&card_id);
+        let card = pl.inventory().get(card_id);
         assert!(card.is_some());
 
         let card = card.unwrap();

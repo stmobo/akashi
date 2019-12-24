@@ -6,7 +6,7 @@ use akashi::local_storage::{LocalStoreBackend, SharedLocalStore};
 use akashi::router;
 use akashi::snowflake::SnowflakeGenerator;
 
-const BIND_URL: &'static str = "127.0.0.1:8088";
+const BIND_URL: &str = "127.0.0.1:8088";
 
 fn main() {
     let shared_store = web::Data::new(SharedLocalStore::new());
