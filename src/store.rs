@@ -125,6 +125,19 @@ where
         Ok(r)
     }
 
+    pub fn store(&self, id: Snowflake, object: T) -> Result<()> {
+        let wrapper = self.load(id)?;
+        let mut handle = wrapper.lock().unwrap();
+        handle.replace(object);
+        handle.store()
+    }
+
+    pub fn delete(&self, id: Snowflake) -> Result<()> {
+        let wrapper = self.load(id)?;
+        let mut handle = wrapper.lock().unwrap();
+        handle.delete()
+    }
+
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
         self.backend.exists(id)
     }

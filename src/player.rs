@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::card::Inventory;
 use crate::metadata::MetadataAttached;
 use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
@@ -11,22 +10,19 @@ use crate::snowflake::{Snowflake, SnowflakeGenerator};
 pub struct Player {
     id: Snowflake,
     resources: HashMap<ResourceID, u64>,
-    inventory: Inventory,
-    locked_cards: Inventory,
+    inventories: HashMap<String, Snowflake>,
 }
 
 impl Player {
     pub fn new(
         id: Snowflake,
         resources: HashMap<ResourceID, u64>,
-        inventory: Inventory,
-        locked_cards: Inventory,
+        inventories: HashMap<String, Snowflake>,
     ) -> Player {
         Player {
             id,
             resources,
-            inventory,
-            locked_cards,
+            inventories,
         }
     }
 
@@ -34,8 +30,7 @@ impl Player {
         Player {
             id: snowflake_gen.generate(),
             resources: HashMap::new(),
-            inventory: Inventory::empty(snowflake_gen.generate()),
-            locked_cards: Inventory::empty(snowflake_gen.generate()),
+            inventories: HashMap::new(),
         }
     }
 
@@ -43,20 +38,12 @@ impl Player {
         &self.id
     }
 
-    pub fn inventory(&self) -> &Inventory {
-        &self.inventory
+    pub fn get_inventory(&self, name: &str) -> Option<&Snowflake> {
+        self.inventories.get(name)
     }
 
-    pub fn inventory_mut(&mut self) -> &mut Inventory {
-        &mut self.inventory
-    }
-
-    pub fn locked_inventory(&self) -> &Inventory {
-        &self.locked_cards
-    }
-
-    pub fn locked_inventory_mut(&mut self) -> &mut Inventory {
-        &mut self.locked_cards
+    pub fn attach_inventory(&mut self, name: &str, id: Snowflake) -> Option<Snowflake> {
+        self.inventories.insert(String::from(name), id)
     }
 
     pub fn resources(&self) -> &HashMap<ResourceID, ResourceCount> {

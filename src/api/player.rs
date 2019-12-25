@@ -1,34 +1,14 @@
 use actix_web::{error, web, HttpResponse, Result, Scope};
-use std::cell::RefCell;
 use std::ops::DerefMut;
 
 use serde::Deserialize;
 
 use crate::player::Player;
 use crate::resources::{ResourceCount, ResourceID};
-use crate::snowflake::{Snowflake, SnowflakeGenerator};
+use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
-type SnowflakeGeneratorState = web::Data<RefCell<SnowflakeGenerator>>;
-
-#[derive(Deserialize)]
-#[serde(default)]
-struct Pagination {
-    page: u64,
-    limit: u64,
-}
-
-impl Pagination {
-    fn new() -> Pagination {
-        Pagination { page: 0, limit: 20 }
-    }
-}
-
-impl Default for Pagination {
-    fn default() -> Pagination {
-        Pagination::new()
-    }
-}
+use super::utils::{Pagination, SnowflakeGeneratorState};
 
 // GET /players
 fn list_players<T, U>(
@@ -43,7 +23,20 @@ where
     let keys: Vec<Snowflake> = store
         .keys(query.page, query.limit)
         .map_err(error::ErrorInternalServerError)?;
-    Ok(HttpResponse::Ok().json(keys))
+
+    let players: Vec<Player> = keys
+        .iter()
+        .filter_map(|key| -> Option<Player> {
+            let wrapper = store.load(*key).ok()?;
+            let handle = wrapper.lock().ok()?;
+            match handle.get() {
+                None => None,
+                Some(pl) => Some(pl.clone()),
+            }
+        })
+        .collect();
+
+    Ok(HttpResponse::Ok().json(players))
 }
 
 // GET /players/{playerid}
@@ -237,32 +230,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{dev, http, test};
+    use actix_web::http;
 
+    use crate::snowflake::SnowflakeGenerator;
+
+    use crate::api::utils::{get_body_json, get_body_str, snowflake_generator, store};
     use crate::local_storage::SharedLocalStore;
-
-    fn snowflake_generator(group_id: u64, worker_id: u64) -> SnowflakeGeneratorState {
-        web::Data::new(RefCell::new(SnowflakeGenerator::new(group_id, worker_id)))
-    }
-
-    fn store() -> web::Data<SharedLocalStore> {
-        web::Data::new(SharedLocalStore::new())
-    }
-
-    fn get_body_str(resp: &HttpResponse) -> &str {
-        let body = resp.body().as_ref().unwrap();
-        match body {
-            dev::Body::Bytes(body) => {
-                std::str::from_utf8(body).expect("Could not deserialize body bytes as UTF-8")
-            }
-            _ => panic!(format!("Expected body bytes, got {:?}", body)),
-        }
-    }
-
-    fn get_body_json<'a, T: Deserialize<'a>>(resp: &'a HttpResponse) -> T {
-        let s = get_body_str(resp);
-        serde_json::from_str(s).expect("Could not deserialize JSON response")
-    }
 
     #[test]
     fn test_new_player() {
@@ -281,16 +254,10 @@ mod tests {
         let shared_store = SharedLocalStore::new();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let store = shared_store.get_store();
+        let players = shared_store.players();
         let pl = Player::empty(&mut snowflake_gen);
         let id = *pl.id();
-
-        {
-            let wrapper = store.load(id).unwrap();
-            let mut handle = wrapper.lock().unwrap();
-            handle.replace(pl.clone());
-            handle.store().unwrap();
-        }
+        players.store(id, pl.clone()).unwrap();
 
         let resp = get_player(web::Path::from((id,)), web::Data::new(shared_store)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -317,13 +284,7 @@ mod tests {
         let players = shared_store.players();
         let pl = Player::empty(&mut snowflake_gen);
         let id = *pl.id();
-
-        {
-            let wrapper = players.load(id).unwrap();
-            let mut handle = wrapper.lock().unwrap();
-            handle.replace(pl.clone());
-            handle.store().unwrap();
-        }
+        players.store(id, pl.clone()).unwrap();
 
         assert_eq!(players.keys(0, 20).unwrap().len(), 1);
 
@@ -340,6 +301,222 @@ mod tests {
 
         let resp = delete_player(web::Path::from((id,)), shared_store).unwrap();
         assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_player_transaction_add() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let pl = Player::empty(&mut snowflake_gen);
+
+        let players = shared_store.players();
+        let id = *pl.id();
+        players.store(id, pl).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::Add((0, 10))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        {
+            let wrapper = players.load(id).unwrap();
+            let handle = wrapper.lock().unwrap();
+
+            let stored_pl = handle.get().unwrap().clone();
+            let resp_pl: Player = get_body_json(&resp);
+
+            assert_eq!(resp_pl, stored_pl);
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 10);
+        }
+    }
+
+    #[test]
+    fn test_player_transaction_sub() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut pl = Player::empty(&mut snowflake_gen);
+
+        pl.set_resource(0, 50);
+
+        let players = shared_store.players();
+        let id = *pl.id();
+        players.store(id, pl.clone()).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::Sub((0, 25))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        {
+            let wrapper = players.load(id).unwrap();
+            let handle = wrapper.lock().unwrap();
+
+            let stored_pl = handle.get().unwrap().clone();
+            let resp_pl: Player = get_body_json(&resp);
+
+            assert_eq!(resp_pl, stored_pl);
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 25);
+        }
+    }
+
+    #[test]
+    fn test_player_transaction_sub_validate() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut pl = Player::empty(&mut snowflake_gen);
+
+        pl.set_resource(0, 50);
+        let expected_player = pl.clone();
+
+        let players = shared_store.players();
+        let id = *pl.id();
+        players.store(id, pl).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::Sub((0, 60))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        {
+            let wrapper = players.load(id).unwrap();
+            let handle = wrapper.lock().unwrap();
+            let stored_pl = handle.get().unwrap().clone();
+
+            assert_eq!(stored_pl, expected_player);
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 50);
+        }
+    }
+
+    #[test]
+    fn test_player_transaction_set() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let pl = Player::empty(&mut snowflake_gen);
+
+        let players = shared_store.players();
+        let id = *pl.id();
+        players.store(id, pl).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::Set((0, 100))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        {
+            let wrapper = players.load(id).unwrap();
+            let handle = wrapper.lock().unwrap();
+
+            let stored_pl = handle.get().unwrap().clone();
+            let resp_pl: Player = get_body_json(&resp);
+
+            assert_eq!(resp_pl, stored_pl);
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 100);
+        }
+    }
+
+    #[test]
+    fn test_player_transaction_transfer() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut pl_1 = Player::empty(&mut snowflake_gen);
+        let mut pl_2 = Player::empty(&mut snowflake_gen);
+
+        pl_1.set_resource(0, 110);
+        pl_2.set_resource(0, 0);
+
+        let players = shared_store.players();
+        let id_1 = *pl_1.id();
+        let id_2 = *pl_2.id();
+
+        players.store(id_1, pl_1.clone()).unwrap();
+        players.store(id_2, pl_2.clone()).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id_2,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::TransferFrom((id_1, 0, 50))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        {
+            let wrapper = players.load(id_2).unwrap();
+            let handle = wrapper.lock().unwrap();
+
+            let stored_pl = handle.get().unwrap().clone();
+            let resp_pl: Player = get_body_json(&resp);
+
+            assert_eq!(resp_pl, stored_pl);
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 50);
+        }
+
+        {
+            let wrapper = players.load(id_1).unwrap();
+            let handle = wrapper.lock().unwrap();
+            let stored_pl = handle.get().unwrap().clone();
+
+            assert_eq!(stored_pl.get_resource(0).unwrap(), 60);
+        }
+    }
+
+    #[test]
+    fn test_player_transaction_transfer_validate() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut pl_1 = Player::empty(&mut snowflake_gen);
+        let mut pl_2 = Player::empty(&mut snowflake_gen);
+
+        pl_1.set_resource(0, 50);
+        pl_2.set_resource(0, 0);
+
+        let players = shared_store.players();
+        let id_1 = *pl_1.id();
+        let id_2 = *pl_2.id();
+
+        players.store(id_1, pl_1.clone()).unwrap();
+        players.store(id_2, pl_2.clone()).unwrap();
+
+        let resp = player_resource_transaction(
+            web::Path::from((id_2,)),
+            shared_store.clone(),
+            web::Json(vec![Transaction::TransferFrom((id_1, 0, 60))]),
+        )
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
+
+        {
+            let wrapper = players.load(id_1).unwrap();
+            let handle = wrapper.lock().unwrap();
+            let stored_pl = handle.get().unwrap().clone();
+
+            assert_eq!(stored_pl, pl_1);
+        }
+
+        {
+            let wrapper = players.load(id_2).unwrap();
+            let handle = wrapper.lock().unwrap();
+            let stored_pl = handle.get().unwrap().clone();
+
+            assert_eq!(stored_pl, pl_2);
+        }
     }
 
     #[test]
@@ -360,20 +537,15 @@ mod tests {
         let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let store = shared_store.get_store();
+        let players = shared_store.players();
         let pl = Player::empty(&mut snowflake_gen);
         let id = *pl.id();
-        {
-            let wrapper = store.load(id).unwrap();
-            let mut handle = wrapper.lock().unwrap();
-            handle.replace(pl);
-            handle.store().unwrap();
-        }
+        players.store(id, pl.clone()).unwrap();
 
         let resp = list_players(query, shared_store).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
-        let body: Vec<Snowflake> = get_body_json(&resp);
-        assert_eq!(body, vec![id]);
+        let body: Vec<Player> = get_body_json(&resp);
+        assert_eq!(body, vec![pl]);
     }
 }

@@ -2,8 +2,8 @@ use actix_web::{web, App, HttpServer};
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
+use akashi::api;
 use akashi::local_storage::{LocalStoreBackend, SharedLocalStore};
-use akashi::router;
 use akashi::snowflake::SnowflakeGenerator;
 
 const BIND_URL: &str = "127.0.0.1:8088";
@@ -30,7 +30,7 @@ fn main() {
         let scope = web::scope("/players")
             .register_data(shared_store.clone())
             .data(RefCell::new(snowflake_gen));
-        let scope = router::bind_routes::<SharedLocalStore, LocalStoreBackend>(scope);
+        let scope = api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(scope);
 
         App::new().service(scope)
     })
