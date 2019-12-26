@@ -26,13 +26,19 @@ fn main() {
 
         println!("Started thread {}!", id);
 
-        let snowflake_gen = SnowflakeGenerator::new(0, id);
-        let scope = web::scope("/players")
+        let players_scope = web::scope("/players")
             .register_data(shared_store.clone())
-            .data(RefCell::new(snowflake_gen));
-        let scope = api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(scope);
+            .data(RefCell::new(SnowflakeGenerator::new(0, id)));
+        let players_scope =
+            api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(players_scope);
 
-        App::new().service(scope)
+        let inv_scope = web::scope("/inventories")
+            .register_data(shared_store.clone())
+            .data(RefCell::new(SnowflakeGenerator::new(1, id)));
+        let inv_scope =
+            api::inventory::bind_routes::<SharedLocalStore, LocalStoreBackend>(inv_scope);
+
+        App::new().service(players_scope).service(inv_scope)
     })
     .bind("127.0.0.1:8088")
     .unwrap()

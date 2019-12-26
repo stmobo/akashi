@@ -9,35 +9,35 @@ where
 {
     fn get_metadata<'a, 'b, U>(&'b self, provider: &'a U) -> Result<U::Item>
     where
-        U: MetadataProvider<'a, 'b, Self>,
+        U: MetadataProvider<'a, Self>,
     {
         provider.get(&self)
     }
 
     fn set_metadata<'a, 'b, U>(&'b self, provider: &'a mut U, data: U::Item) -> Result<()>
     where
-        U: MutableMetadataProvider<'a, 'b, Self>,
+        U: MutableMetadataProvider<'a, Self>,
     {
         provider.set(&self, data)
     }
 
     fn clear_metadata<'a, 'b, U>(&'b self, provider: &'a mut U) -> Result<()>
     where
-        U: MutableMetadataProvider<'a, 'b, Self>,
+        U: MutableMetadataProvider<'a, Self>,
     {
         provider.clear(&self)
     }
 }
 
-pub trait MetadataProvider<'a, 'b, T> {
+pub trait MetadataProvider<'a, T> {
     type Item;
 
-    fn get(&'a self, attached_to: &'b T) -> Result<Self::Item>;
+    fn get<'b>(&'a self, attached_to: &'b T) -> Result<Self::Item>;
 }
 
-pub trait MutableMetadataProvider<'a, 'b, T>: MetadataProvider<'a, 'b, T> {
-    fn set(&'a mut self, attached_to: &'b T, data: Self::Item) -> Result<()>;
-    fn clear(&'a mut self, attached_to: &'b T) -> Result<()>;
+pub trait MutableMetadataProvider<'a, T>: MetadataProvider<'a, T> {
+    fn set<'b>(&'a mut self, attached_to: &'b T, data: Self::Item) -> Result<()>;
+    fn clear<'b>(&'a mut self, attached_to: &'b T) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -93,7 +93,7 @@ mod tests {
         }
     }
 
-    impl<'a, 'b> MetadataProvider<'a, 'b, TestAttachedType> for TestMetadataStorage {
+    impl<'a> MetadataProvider<'a, TestAttachedType> for TestMetadataStorage {
         type Item = &'a TestMetadata;
 
         fn get(&'a self, att: &TestAttachedType) -> Result<Self::Item> {
@@ -104,7 +104,7 @@ mod tests {
         }
     }
 
-    impl<'a, 'b> MutableMetadataProvider<'a, 'b, TestAttachedType> for TestMetadataStorage {
+    impl<'a> MutableMetadataProvider<'a, TestAttachedType> for TestMetadataStorage {
         fn set(&'a mut self, att: &TestAttachedType, data: Self::Item) -> Result<()> {
             self.data.insert(*att.id(), data.clone());
             Ok(())
