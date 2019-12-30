@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use crate::snowflake::Snowflake;
 
-type Result<T> = result::Result<T, Box<dyn error::Error>>;
+type Result<T> = result::Result<T, Box<dyn error::Error + Send>>;
 
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;

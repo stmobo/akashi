@@ -1,4 +1,5 @@
 use actix_web::{web, App, HttpServer};
+use futures::executor::block_on;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -8,7 +9,7 @@ use akashi::snowflake::SnowflakeGenerator;
 
 const BIND_URL: &str = "127.0.0.1:8088";
 
-fn main() {
+async fn _main() -> std::io::Result<()> {
     let shared_store = web::Data::new(SharedLocalStore::new());
     let ctr: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
 
@@ -27,13 +28,13 @@ fn main() {
         println!("Started thread {}!", id);
 
         let players_scope = web::scope("/players")
-            .register_data(shared_store.clone())
+            .app_data(shared_store.clone())
             .data(RefCell::new(SnowflakeGenerator::new(0, id)));
         let players_scope =
             api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(players_scope);
 
         let inv_scope = web::scope("/inventories")
-            .register_data(shared_store.clone())
+            .app_data(shared_store.clone())
             .data(RefCell::new(SnowflakeGenerator::new(1, id)));
         let inv_scope =
             api::inventory::bind_routes::<SharedLocalStore, LocalStoreBackend>(inv_scope);
@@ -43,5 +44,9 @@ fn main() {
     .bind("127.0.0.1:8088")
     .unwrap()
     .run()
-    .unwrap();
+    .await
+}
+
+fn main() {
+    block_on(_main()).unwrap();
 }

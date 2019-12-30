@@ -8,7 +8,7 @@ use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::store::{NotFoundError, SharedStore, Store, StoreBackend};
 
-type Result<T> = result::Result<T, Box<dyn error::Error>>;
+type Result<T> = result::Result<T, Box<dyn error::Error + Send>>;
 
 pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,

@@ -10,13 +10,13 @@ use crate::store::{SharedStore, Store, StoreBackend};
 use super::utils::SnowflakeGeneratorState;
 
 // GET /inventories/{invid}
-fn get_inventory<T, U>(
+async fn get_inventory<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U>,
-    U: StoreBackend<Inventory>,
+    T: SharedStore<Inventory, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
     let store: &Store<Inventory, U> = shared_store.get_store();
@@ -41,15 +41,15 @@ enum InventoryAddOptions {
 }
 
 // POST /inventories/{invid}
-fn add_to_inventory<T, U>(
+async fn add_to_inventory<T, U>(
     path: web::Path<(Snowflake,)>,
     opts: web::Json<InventoryAddOptions>,
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U> + SharedStore<Card, U>,
-    U: StoreBackend<Inventory> + StoreBackend<Card>,
+    T: SharedStore<Inventory, U> + SharedStore<Card, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + StoreBackend<Card> + Send + Sync + 'static,
 {
     let inv_id = path.0;
     let mut snowflake_gen = sg.borrow_mut();
@@ -91,13 +91,13 @@ where
 }
 
 // POST /inventories
-fn create_inventory<T, U>(
+async fn create_inventory<T, U>(
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U>,
-    U: StoreBackend<Inventory>,
+    T: SharedStore<Inventory, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let mut snowflake_gen = sg.borrow_mut();
     let inventories: &Store<Inventory, U> = shared_store.get_store();
@@ -110,13 +110,13 @@ where
 }
 
 // GET /inventories/{invid}/{cardid}
-fn get_card<T, U>(
+async fn get_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U>,
-    U: StoreBackend<Inventory>,
+    T: SharedStore<Inventory, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let inv_id = path.0;
     let card_id = path.1;
@@ -148,13 +148,13 @@ where
 }
 
 // DELETE /inventories/{invid}/{cardid}
-fn delete_card<T, U>(
+async fn delete_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U>,
-    U: StoreBackend<Inventory>,
+    T: SharedStore<Inventory, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let inv_id = path.0;
     let card_id = path.1;
@@ -191,14 +191,14 @@ struct CardMoveOptions {
 }
 
 // POST /inventories/{invid}/{cardid}/move
-fn move_card<T, U>(
+async fn move_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
     query: web::Query<CardMoveOptions>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Inventory, U>,
-    U: StoreBackend<Inventory>,
+    T: SharedStore<Inventory, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let from_inv_id = path.0;
     let card_id = path.1;
@@ -258,8 +258,8 @@ where
 
 pub fn bind_routes<T, U>(scope: Scope) -> Scope
 where
-    T: SharedStore<Inventory, U> + SharedStore<Card, U> + 'static,
-    U: StoreBackend<Inventory> + StoreBackend<Card> + 'static,
+    T: SharedStore<Inventory, U> + SharedStore<Card, U> + Send + Sync + 'static,
+    U: StoreBackend<Inventory> + StoreBackend<Card> + Send + Sync + 'static,
 {
     scope
         .route("/{invid}/{cardid}/move", web::post().to(move_card::<T, U>))

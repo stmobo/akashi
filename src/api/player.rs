@@ -10,56 +10,70 @@ use crate::store::{SharedStore, Store, StoreBackend};
 
 use super::utils::{Pagination, SnowflakeGeneratorState};
 
+type BoxedError = Box<dyn std::error::Error + Send>;
+
 // GET /players
-fn list_players<T, U>(
+async fn list_players<T, U>(
     query: web::Query<Pagination>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Player, U>,
-    U: StoreBackend<Player>,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
-    let store: &Store<Player, U> = shared_store.get_store();
-    let keys: Vec<Snowflake> = store
-        .keys(query.page, query.limit)
-        .map_err(error::ErrorInternalServerError)?;
+    let players: Vec<Player> = web::block(move || -> Result<Vec<Player>, BoxedError> {
+        let store: &Store<Player, U> = shared_store.get_store();
+        let keys = store.keys(query.page, query.limit)?;
 
-    let players: Vec<Player> = keys
-        .iter()
-        .filter_map(|key| -> Option<Player> {
-            let wrapper = store.load(*key).ok()?;
-            let handle = wrapper.lock().ok()?;
-            match handle.get() {
-                None => None,
-                Some(pl) => Some(pl.clone()),
-            }
-        })
-        .collect();
+        let vals: Vec<Player> = keys
+            .iter()
+            .filter_map(|key| -> Option<Player> {
+                let wrapper = store.load(*key).ok()?;
+                let handle = wrapper.lock().ok()?;
+                match handle.get() {
+                    None => None,
+                    Some(pl) => Some(pl.clone()),
+                }
+            })
+            .collect();
+
+        Ok(vals)
+    })
+    .await
+    .map_err(error::ErrorInternalServerError)?;
 
     Ok(HttpResponse::Ok().json(players))
 }
 
 // GET /players/{playerid}
-fn get_player<T, U>(
+async fn get_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Player, U>,
-    U: StoreBackend<Player>,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
-    let store: &Store<Player, U> = shared_store.get_store();
 
-    let pl_ref = store.load(id).map_err(error::ErrorInternalServerError)?;
-    {
+    let r: Option<Player> = web::block(move || -> Result<Option<Player>, BoxedError> {
+        let store: &Store<Player, U> = shared_store.get_store();
+        let pl_ref = store.load(id)?;
+
         let handle = pl_ref.lock().unwrap();
         match handle.get() {
-            None => Ok(HttpResponse::NotFound()
-                .content_type("plain/text")
-                .body(format!("Could not find player {}", id))),
-            Some(r) => Ok(HttpResponse::Ok().json(r)),
+            None => Ok(None),
+            Some(r) => Ok(Some(r.clone())),
         }
+    })
+    .await
+    .map_err(error::ErrorInternalServerError)?;
+
+    match r {
+        None => Ok(HttpResponse::NotFound()
+            .content_type("plain/text")
+            .body(format!("Could not find player {}", id))),
+        Some(v) => Ok(HttpResponse::Ok().json(v)),
     }
 }
 
@@ -73,14 +87,14 @@ enum Transaction {
 }
 
 // POST /players/{playerid}/resources
-fn player_resource_transaction<T, U>(
+async fn player_resource_transaction<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
     transactions: web::Json<Vec<Transaction>>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Player, U>,
-    U: StoreBackend<Player>,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
     let store: &Store<Player, U> = shared_store.get_store();
@@ -167,13 +181,13 @@ where
 }
 
 // DELETE /players/{playerid}
-fn delete_player<T, U>(
+async fn delete_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
 ) -> Result<HttpResponse>
 where
-    T: SharedStore<Player, U>,
-    U: StoreBackend<Player>,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
     let store: &Store<Player, U> = shared_store.get_store();
@@ -192,10 +206,13 @@ where
 }
 
 // POST /players/new
-fn new_player<T, U>(shared_store: web::Data<T>, sg: SnowflakeGeneratorState) -> Result<HttpResponse>
+async fn new_player<T, U>(
+    shared_store: web::Data<T>,
+    sg: SnowflakeGeneratorState,
+) -> Result<HttpResponse>
 where
-    T: SharedStore<Player, U>,
-    U: StoreBackend<Player>,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let mut snowflake_gen = sg.borrow_mut();
     let store: &Store<Player, U> = shared_store.get_store();
@@ -213,8 +230,8 @@ where
 
 pub fn bind_routes<T, U>(scope: Scope) -> Scope
 where
-    T: SharedStore<Player, U> + 'static,
-    U: StoreBackend<Player> + 'static,
+    T: SharedStore<Player, U> + Send + Sync + 'static,
+    U: StoreBackend<Player> + Send + Sync + 'static,
 {
     scope
         .route(
