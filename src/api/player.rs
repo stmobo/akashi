@@ -8,9 +8,8 @@ use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
+use super::utils;
 use super::utils::{Pagination, SnowflakeGeneratorState};
-
-type BoxedError = Box<dyn std::error::Error + Send>;
 
 // GET /players
 async fn list_players<T, U>(
@@ -21,7 +20,7 @@ where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
-    let players: Vec<Player> = web::block(move || -> Result<Vec<Player>, BoxedError> {
+    let players: Vec<Player> = web::block(move || -> utils::Result<Vec<Player>> {
         let store: &Store<Player, U> = shared_store.get_store();
         let keys = store.keys(query.page, query.limit)?;
 
@@ -56,7 +55,7 @@ where
 {
     let id: Snowflake = path.0;
 
-    let r: Option<Player> = web::block(move || -> Result<Option<Player>, BoxedError> {
+    let r: Option<Player> = web::block(move || -> utils::Result<Option<Player>> {
         let store: &Store<Player, U> = shared_store.get_store();
         let pl_ref = store.load(id)?;
 
@@ -98,86 +97,84 @@ where
 {
     let id: Snowflake = path.0;
     let store: &Store<Player, U> = shared_store.get_store();
-
     let pl_ref = store.load(id).map_err(error::ErrorInternalServerError)?;
-    {
-        let mut handle = pl_ref.lock().unwrap();
-        if !handle.exists() {
-            return Ok(HttpResponse::NotFound()
-                .content_type("plain/text")
-                .body(format!("Could not find player {}", id)));
-        }
 
-        let pl = handle.get_mut().unwrap();
+    let mut handle = pl_ref.lock().unwrap();
+    if !handle.exists() {
+        return Ok(HttpResponse::NotFound()
+            .content_type("plain/text")
+            .body(format!("Could not find player {}", id)));
+    }
 
-        for transaction in transactions.iter() {
-            match transaction {
-                Transaction::Add(data) => {
-                    let (id, count) = data;
-                    let cur = pl.get_resource(*id).unwrap_or(0);
+    let pl = handle.get_mut().unwrap();
 
-                    pl.set_resource(*id, cur + count);
-                }
-                Transaction::Sub(data) => {
-                    let (id, count) = data;
-                    let cur = pl.get_resource(*id).unwrap_or(0);
+    for transaction in transactions.iter() {
+        match transaction {
+            Transaction::Add(data) => {
+                let (id, count) = data;
+                let cur = pl.get_resource(*id).unwrap_or(0);
 
-                    if *count > cur {
-                        return Ok(HttpResponse::BadRequest().content_type("plain/text").body(
-                            format!(
+                pl.set_resource(*id, cur + count);
+            }
+            Transaction::Sub(data) => {
+                let (id, count) = data;
+                let cur = pl.get_resource(*id).unwrap_or(0);
+
+                if *count > cur {
+                    return Ok(HttpResponse::BadRequest().content_type("plain/text").body(
+                        format!(
                             "invalid transaction (attempted to subtract {} from {} of resource {})",
                             count, cur, id
                         ),
-                        ));
+                    ));
+                }
+
+                pl.set_resource(*id, cur - count);
+            }
+            Transaction::Set(data) => {
+                let (id, count) = data;
+                pl.set_resource(*id, *count);
+            }
+            Transaction::TransferFrom(data) => {
+                let (other_id, rsc_id, count) = data;
+                let other_ref = store
+                    .load(*other_id)
+                    .map_err(error::ErrorInternalServerError)?;
+
+                let mut other_pl_handle = other_ref.lock().unwrap();
+                let other_pl = match other_pl_handle.get_mut() {
+                    None => {
+                        return Ok(HttpResponse::NotFound()
+                            .content_type("plain/text")
+                            .body(format!("Could not find player {}", other_id)));
                     }
+                    Some(r) => r,
+                };
 
-                    pl.set_resource(*id, cur - count);
-                }
-                Transaction::Set(data) => {
-                    let (id, count) = data;
-                    pl.set_resource(*id, *count);
-                }
-                Transaction::TransferFrom(data) => {
-                    let (other_id, rsc_id, count) = data;
-                    let other_ref = store
-                        .load(*other_id)
-                        .map_err(error::ErrorInternalServerError)?;
+                let cur_a = pl.get_resource(*rsc_id).unwrap_or(0);
+                let cur_b = other_pl.get_resource(*rsc_id).unwrap_or(0);
 
-                    let mut other_pl_handle = other_ref.lock().unwrap();
-                    let other_pl = match other_pl_handle.get_mut() {
-                        None => {
-                            return Ok(HttpResponse::NotFound()
-                                .content_type("plain/text")
-                                .body(format!("Could not find player {}", other_id)));
-                        }
-                        Some(r) => r,
-                    };
-
-                    let cur_a = pl.get_resource(*rsc_id).unwrap_or(0);
-                    let cur_b = other_pl.get_resource(*rsc_id).unwrap_or(0);
-
-                    if *count > cur_b {
-                        return Ok(HttpResponse::BadRequest().content_type("plain/text").body(
-                            format!(
+                if *count > cur_b {
+                    return Ok(HttpResponse::BadRequest().content_type("plain/text").body(
+                        format!(
                             "invalid transaction (attempted to subtract {} from {} of resource {})",
                             count, cur_b, rsc_id
                         ),
-                        ));
-                    }
-
-                    pl.set_resource(*rsc_id, cur_a + count);
-                    other_pl.set_resource(*rsc_id, cur_b - count);
-
-                    other_pl_handle
-                        .store()
-                        .map_err(error::ErrorInternalServerError)?;
+                    ));
                 }
+
+                pl.set_resource(*rsc_id, cur_a + count);
+                other_pl.set_resource(*rsc_id, cur_b - count);
+
+                other_pl_handle
+                    .store()
+                    .map_err(error::ErrorInternalServerError)?;
             }
         }
-
-        handle.store().map_err(error::ErrorInternalServerError)?;
-        Ok(HttpResponse::Ok().json(handle.get()))
     }
+
+    handle.store().map_err(error::ErrorInternalServerError)?;
+    Ok(HttpResponse::Ok().json(handle.get()))
 }
 
 // DELETE /players/{playerid}
@@ -190,19 +187,29 @@ where
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
-    let store: &Store<Player, U> = shared_store.get_store();
 
-    let wrapper = store.load(id).map_err(error::ErrorInternalServerError)?;
-    let mut handle = wrapper.lock().unwrap();
+    let deleted = web::block(move || -> utils::Result<bool> {
+        let store: &Store<Player, U> = shared_store.get_store();
+        let wrapper = store.load(id)?;
+        let mut handle = wrapper.lock().unwrap();
 
-    if !handle.exists() {
-        return Ok(HttpResponse::NotFound()
+        if !handle.exists() {
+            Ok(false)
+        } else {
+            handle.delete()?;
+            Ok(true)
+        }
+    })
+    .await
+    .map_err(error::ErrorInternalServerError)?;
+
+    if !deleted {
+        Ok(HttpResponse::NotFound()
             .content_type("plain/text")
-            .body(format!("Could not find player {}", id)));
+            .body(format!("Could not find player {}", id)))
+    } else {
+        Ok(HttpResponse::NoContent().finish())
     }
-
-    handle.delete().map_err(error::ErrorInternalServerError)?;
-    Ok(HttpResponse::NoContent().finish())
 }
 
 // POST /players/new
@@ -215,17 +222,23 @@ where
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let mut snowflake_gen = sg.borrow_mut();
-    let store: &Store<Player, U> = shared_store.get_store();
     let pl = Player::empty(snowflake_gen.deref_mut());
 
-    let wrapper = store
-        .load(*pl.id())
-        .map_err(error::ErrorInternalServerError)?;
-    let mut handle = wrapper.lock().unwrap();
+    let pl = web::block(move || -> utils::Result<Player> {
+        let store: &Store<Player, U> = shared_store.get_store();
 
-    handle.replace(pl);
-    handle.store().map_err(error::ErrorInternalServerError)?;
-    Ok(HttpResponse::Ok().json(handle.get()))
+        let wrapper = store.load(*pl.id())?;
+        let mut handle = wrapper.lock().unwrap();
+
+        handle.replace(pl);
+        handle.store()?;
+
+        Ok(handle.get().unwrap().clone())
+    })
+    .await
+    .map_err(error::ErrorInternalServerError)?;
+
+    Ok(HttpResponse::Ok().json(pl))
 }
 
 pub fn bind_routes<T, U>(scope: Scope) -> Scope
@@ -248,18 +261,18 @@ where
 mod tests {
     use super::*;
     use actix_web::http;
-
-    use crate::snowflake::SnowflakeGenerator;
+    use futures::executor::block_on;
 
     use crate::api::utils::{get_body_json, get_body_str, snowflake_generator, store};
     use crate::local_storage::SharedLocalStore;
+    use crate::snowflake::SnowflakeGenerator;
 
     #[test]
     fn test_new_player() {
         let shared_store = store();
         let sg = snowflake_generator(0, 0);
 
-        let resp = new_player(shared_store.clone(), sg).unwrap();
+        let resp = block_on(new_player(shared_store.clone(), sg)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let players = shared_store.players();
@@ -276,7 +289,11 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl.clone()).unwrap();
 
-        let resp = get_player(web::Path::from((id,)), web::Data::new(shared_store)).unwrap();
+        let resp = block_on(get_player(
+            web::Path::from((id,)),
+            web::Data::new(shared_store),
+        ))
+        .unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: Player = get_body_json(&resp);
@@ -289,7 +306,7 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
-        let resp = get_player(web::Path::from((id,)), shared_store).unwrap();
+        let resp = block_on(get_player(web::Path::from((id,)), shared_store)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
     }
 
@@ -305,7 +322,7 @@ mod tests {
 
         assert_eq!(players.keys(0, 20).unwrap().len(), 1);
 
-        let resp = delete_player(web::Path::from((id,)), shared_store.clone()).unwrap();
+        let resp = block_on(delete_player(web::Path::from((id,)), shared_store.clone())).unwrap();
         assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
         assert_eq!(shared_store.players().keys(0, 20).unwrap().len(), 0);
     }
@@ -316,7 +333,7 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
-        let resp = delete_player(web::Path::from((id,)), shared_store).unwrap();
+        let resp = block_on(delete_player(web::Path::from((id,)), shared_store)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
     }
 
@@ -330,11 +347,11 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
             web::Json(vec![Transaction::Add((0, 10))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -363,11 +380,11 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl.clone()).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
             web::Json(vec![Transaction::Sub((0, 25))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -397,11 +414,11 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
             web::Json(vec![Transaction::Sub((0, 60))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
@@ -426,11 +443,11 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
             web::Json(vec![Transaction::Set((0, 100))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -464,11 +481,11 @@ mod tests {
         players.store(id_1, pl_1.clone()).unwrap();
         players.store(id_2, pl_2.clone()).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id_2,)),
             shared_store.clone(),
             web::Json(vec![Transaction::TransferFrom((id_1, 0, 50))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -510,11 +527,11 @@ mod tests {
         players.store(id_1, pl_1.clone()).unwrap();
         players.store(id_2, pl_2.clone()).unwrap();
 
-        let resp = player_resource_transaction(
+        let resp = block_on(player_resource_transaction(
             web::Path::from((id_2,)),
             shared_store.clone(),
             web::Json(vec![Transaction::TransferFrom((id_1, 0, 60))]),
-        )
+        ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::BAD_REQUEST);
@@ -541,7 +558,7 @@ mod tests {
         let shared_store = store();
         let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
 
-        let resp = list_players(query, shared_store).unwrap();
+        let resp = block_on(list_players(query, shared_store)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body = get_body_str(&resp);
@@ -559,7 +576,7 @@ mod tests {
         let id = *pl.id();
         players.store(id, pl.clone()).unwrap();
 
-        let resp = list_players(query, shared_store).unwrap();
+        let resp = block_on(list_players(query, shared_store)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: Vec<Player> = get_body_json(&resp);

@@ -32,6 +32,9 @@ impl Default for Pagination {
     }
 }
 
+pub type BoxedError = Box<dyn std::error::Error + Send>;
+pub type Result<T> = std::result::Result<T, BoxedError>;
+
 #[cfg(test)]
 pub fn snowflake_generator(group_id: u64, worker_id: u64) -> SnowflakeGeneratorState {
     web::Data::new(RefCell::new(SnowflakeGenerator::new(group_id, worker_id)))
