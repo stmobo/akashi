@@ -164,24 +164,32 @@ where
         .load(inv_id)
         .map_err(error::ErrorInternalServerError)?;
     let mut handle = wrapper.lock().unwrap();
+    let res: Option<Card>;
 
-    let inv: &mut Inventory;
-    if let Some(v) = handle.get_mut() {
-        inv = v;
-    } else {
-        return Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!("Could not find inventory {}", inv_id)));
+    {
+        let inv: &mut Inventory;
+        if let Some(v) = handle.get_mut() {
+            inv = v;
+        } else {
+            return Ok(HttpResponse::NotFound()
+                .content_type("plain/text")
+                .body(format!("Could not find inventory {}", inv_id)));
+        }
+
+        res = inv.remove(card_id);
     }
 
-    match inv.remove(card_id) {
+    match res {
         None => Ok(HttpResponse::NotFound()
             .content_type("plain/text")
             .body(format!(
                 "Could not find card {} in inventory {}",
                 card_id, inv_id
             ))),
-        Some(card) => Ok(HttpResponse::Ok().json(card)),
+        Some(card) => {
+            handle.store().map_err(error::ErrorInternalServerError)?;
+            Ok(HttpResponse::Ok().json(card))
+        }
     }
 }
 
@@ -268,4 +276,344 @@ where
         .route("/{invid}", web::post().to(add_to_inventory::<T, U>))
         .route("/{invid}", web::get().to(get_inventory::<T, U>))
         .route("", web::post().to(create_inventory::<T, U>))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::http;
+    use futures::executor::block_on;
+
+    use crate::api::utils;
+    use crate::api::utils::{get_body_json, snowflake_generator, store};
+    use crate::local_storage::SharedLocalStore;
+    use crate::snowflake::SnowflakeGenerator;
+
+    #[test]
+    fn test_get_inventory() {
+        let shared_store = SharedLocalStore::new();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+
+        let inv = Inventory::empty(snowflake_gen.generate());
+        let inv_store = shared_store.inventories();
+
+        inv_store.store(*inv.id(), inv.clone()).unwrap();
+
+        let resp = block_on(get_inventory(
+            web::Path::from((*inv.id(),)),
+            web::Data::new(shared_store),
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        let body: Inventory = get_body_json(&resp);
+        assert_eq!(body, inv);
+    }
+
+    #[test]
+    fn test_get_inventory_not_exists() {
+        let shared_store = SharedLocalStore::new();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+
+        let resp = block_on(get_inventory(
+            web::Path::from((snowflake_gen.generate(),)),
+            web::Data::new(shared_store),
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_create_inventory() {
+        let shared_store = store();
+        let sg = snowflake_generator(0, 0);
+
+        let resp = block_on(create_inventory(shared_store.clone(), sg)).unwrap();
+
+        let inventories = shared_store.inventories();
+        let keys = inventories.keys(0, 20).unwrap();
+
+        assert_eq!(keys.len(), 1);
+
+        let wrapper = inventories.load(keys[0]).unwrap();
+        let handle = wrapper.lock().unwrap();
+
+        let body: Inventory = get_body_json(&resp);
+        let stored_card = handle.get().unwrap();
+        assert_eq!(body, *stored_card);
+        assert_eq!(resp.status(), http::StatusCode::OK);
+    }
+
+    #[test]
+    fn test_add_new_card() {
+        let shared_store = store();
+        let sg = snowflake_generator(0, 0);
+        let type_id: Snowflake;
+        let inv: Inventory;
+
+        {
+            let mut snowflake_gen = sg.borrow_mut();
+            type_id = snowflake_gen.generate();
+            inv = Inventory::empty(snowflake_gen.generate());
+        }
+
+        let inv_store = shared_store.inventories();
+        let card_store = shared_store.cards();
+
+        let inv_id = *inv.id();
+        inv_store.store(inv_id, inv).unwrap();
+
+        let resp = block_on(add_to_inventory(
+            web::Path::from((inv_id,)),
+            web::Json(InventoryAddOptions::New(type_id)),
+            shared_store.clone(),
+            sg,
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        let body: Inventory = get_body_json(&resp);
+        let wrapper = inv_store.load(inv_id).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let stored_inv = handle.get().unwrap();
+
+        assert_eq!(body, *stored_inv);
+        assert_eq!(stored_inv.len(), 1);
+
+        let card: &Card = stored_inv.iter().nth(0).unwrap();
+        assert_eq!(*card.type_id(), type_id);
+
+        let wrapper = card_store.load(*card.id()).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let stored_card = handle.get().unwrap();
+
+        assert_eq!(*card, *stored_card);
+    }
+
+    #[test]
+    fn test_add_existing_card() {
+        let shared_store = store();
+        let sg = snowflake_generator(0, 0);
+        let card: Card;
+        let inv: Inventory;
+
+        {
+            let mut snowflake_gen = sg.borrow_mut();
+            card = utils::generate_random_card(snowflake_gen.deref_mut());
+            inv = Inventory::empty(snowflake_gen.generate());
+        }
+
+        let inv_store = shared_store.inventories();
+        let inv_id = *inv.id();
+        inv_store.store(inv_id, inv).unwrap();
+
+        let resp = block_on(add_to_inventory(
+            web::Path::from((inv_id,)),
+            web::Json(InventoryAddOptions::Existing(card.clone())),
+            shared_store.clone(),
+            sg,
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        let body: Inventory = get_body_json(&resp);
+        let wrapper = inv_store.load(inv_id).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let stored_inv = handle.get().unwrap();
+
+        assert_eq!(body, *stored_inv);
+        assert_eq!(stored_inv.len(), 1);
+
+        let inv_card: &Card = stored_inv.iter().nth(0).unwrap();
+        assert_eq!(*inv_card, card);
+    }
+
+    #[test]
+    fn test_get_card() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut inv = Inventory::empty(snowflake_gen.generate());
+
+        let card = utils::generate_random_card(&mut snowflake_gen);
+        inv.insert(card.clone());
+
+        let inv_store = shared_store.inventories();
+        let inv_id = *inv.id();
+        let card_id = *card.id();
+
+        inv_store.store(inv_id, inv).unwrap();
+        let resp = block_on(get_card(web::Path::from((inv_id, card_id)), shared_store)).unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        let body: Card = get_body_json(&resp);
+        assert_eq!(body, card);
+    }
+
+    #[test]
+    fn test_get_card_not_exists() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let inv = Inventory::empty(snowflake_gen.generate());
+        let inv_id = *inv.id();
+
+        let test_id = snowflake_gen.generate();
+        let resp = block_on(get_card(
+            web::Path::from((inv_id, test_id)),
+            shared_store.clone(),
+        ))
+        .unwrap();
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+
+        let inv_store = shared_store.inventories();
+        inv_store.store(inv_id, inv).unwrap();
+
+        let test_id = snowflake_gen.generate();
+        let resp = block_on(get_card(web::Path::from((inv_id, test_id)), shared_store)).unwrap();
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_delete_card() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut inv = Inventory::empty(snowflake_gen.generate());
+        let card = utils::generate_random_card(&mut snowflake_gen);
+        let inv_id = *inv.id();
+        let card_id = *card.id();
+
+        inv.insert(card.clone());
+        assert_eq!(inv.len(), 1);
+
+        let inv_store = shared_store.inventories();
+        inv_store.store(inv_id, inv).unwrap();
+
+        let resp = block_on(delete_card(
+            web::Path::from((inv_id, card_id)),
+            shared_store.clone(),
+        ))
+        .unwrap();
+        assert_eq!(resp.status(), http::StatusCode::OK);
+
+        let body: Card = get_body_json(&resp);
+        assert_eq!(body, card);
+
+        let wrapper = inv_store.load(inv_id).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let inv = handle.get().unwrap();
+        assert_eq!(inv.len(), 0);
+    }
+
+    #[test]
+    fn test_delete_card_not_exists() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let inv = Inventory::empty(snowflake_gen.generate());
+        let inv_id = *inv.id();
+
+        let test_id = snowflake_gen.generate();
+        let resp = block_on(delete_card(
+            web::Path::from((inv_id, test_id)),
+            shared_store.clone(),
+        ))
+        .unwrap();
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+
+        let inv_store = shared_store.inventories();
+        inv_store.store(inv_id, inv).unwrap();
+
+        let test_id = snowflake_gen.generate();
+        let resp = block_on(delete_card(
+            web::Path::from((inv_id, test_id)),
+            shared_store,
+        ))
+        .unwrap();
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn test_move_card() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let card = utils::generate_random_card(&mut snowflake_gen);
+        let card_id = *card.id();
+
+        let mut src_inv = Inventory::empty(snowflake_gen.generate());
+        let src_id = *src_inv.id();
+        src_inv.insert(card.clone());
+        assert_eq!(src_inv.len(), 1);
+
+        let dest_inv = Inventory::empty(snowflake_gen.generate());
+        let dest_id = *dest_inv.id();
+
+        let inv_store = shared_store.inventories();
+        inv_store.store(src_id, src_inv).unwrap();
+        inv_store.store(dest_id, dest_inv).unwrap();
+
+        let query_str = format!("to={}", dest_id);
+        let query = web::Query::<CardMoveOptions>::from_query(query_str.as_str()).unwrap();
+
+        let resp = block_on(move_card(
+            web::Path::from((src_id, card_id)),
+            shared_store.clone(),
+            query,
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
+
+        let src_wrapper = inv_store.load(src_id).unwrap();
+        let src_handle = src_wrapper.lock().unwrap();
+        let src_inv: &Inventory = src_handle.get().unwrap();
+
+        let dest_wrapper = inv_store.load(dest_id).unwrap();
+        let dest_handle = dest_wrapper.lock().unwrap();
+        let dest_inv: &Inventory = dest_handle.get().unwrap();
+
+        assert_eq!(src_inv.len(), 0);
+        assert_eq!(dest_inv.len(), 1);
+
+        let loaded_card = dest_inv.iter().nth(0).unwrap();
+        assert_eq!(card, *loaded_card);
+    }
+
+    #[test]
+    fn test_move_card_nonexistent_dest() {
+        let shared_store = store();
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let card = utils::generate_random_card(&mut snowflake_gen);
+        let card_id = *card.id();
+
+        let mut src_inv = Inventory::empty(snowflake_gen.generate());
+        let src_id = *src_inv.id();
+        src_inv.insert(card.clone());
+        assert_eq!(src_inv.len(), 1);
+
+        let inv_store = shared_store.inventories();
+        inv_store.store(src_id, src_inv).unwrap();
+
+        let query = web::Query::<CardMoveOptions>::from_query("to=1").unwrap();
+
+        let resp = block_on(move_card(
+            web::Path::from((src_id, card_id)),
+            shared_store.clone(),
+            query,
+        ))
+        .unwrap();
+
+        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+
+        let src_wrapper = inv_store.load(src_id).unwrap();
+        let src_handle = src_wrapper.lock().unwrap();
+        let src_inv: &Inventory = src_handle.get().unwrap();
+
+        assert_eq!(src_inv.len(), 1);
+
+        let loaded_card = src_inv.iter().nth(0).unwrap();
+        assert_eq!(card, *loaded_card);
+    }
 }

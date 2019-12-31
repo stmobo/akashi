@@ -11,6 +11,9 @@ use actix_web::{dev, HttpResponse};
 #[cfg(test)]
 use crate::local_storage::SharedLocalStore;
 
+#[cfg(test)]
+use crate::card::Card;
+
 pub type SnowflakeGeneratorState = web::Data<RefCell<SnowflakeGenerator>>;
 
 #[derive(Deserialize)]
@@ -60,4 +63,10 @@ pub fn get_body_str(resp: &HttpResponse) -> &str {
 pub fn get_body_json<'a, T: Deserialize<'a>>(resp: &'a HttpResponse) -> T {
     let s = get_body_str(resp);
     serde_json::from_str(s).expect("Could not deserialize JSON response")
+}
+
+#[cfg(test)]
+pub fn generate_random_card(snowflake_gen: &mut SnowflakeGenerator) -> Card {
+    let type_id = snowflake_gen.generate();
+    Card::generate(snowflake_gen, type_id)
 }
