@@ -1,36 +1,41 @@
-use actix_web::{error, web, HttpResponse, Result, Scope};
+use serde::Deserialize;
 use std::ops::DerefMut;
 
-use serde::Deserialize;
+use actix_web::{web, HttpResponse, Scope};
 
 use crate::card::{Card, Inventory};
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
-use super::utils::SnowflakeGeneratorState;
+use super::utils;
+use super::utils::{APIError, SnowflakeGeneratorState};
 
 // GET /inventories/{invid}
 async fn get_inventory<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
-    let store: &Store<Inventory, U> = shared_store.get_store();
 
-    let inv_ref = store.load(id).map_err(error::ErrorInternalServerError)?;
-    {
+    let val = web::block(move || -> utils::Result<Inventory> {
+        let store: &Store<Inventory, U> = shared_store.get_store();
+        let inv_ref = store.load(id)?;
         let handle = inv_ref.lock().unwrap();
         match handle.get() {
-            None => Ok(HttpResponse::NotFound()
-                .content_type("plain/text")
-                .body(format!("Could not find inventory {}", id))),
-            Some(r) => Ok(HttpResponse::Ok().json(r)),
+            None => Err(APIError::not_found(format!(
+                "Could not find inventory {}",
+                id
+            ))),
+            Some(v) => Ok(v.clone()),
         }
-    }
+    })
+    .await?;
+
+    Ok(HttpResponse::Ok().json(val))
 }
 
 #[derive(Deserialize)]
@@ -46,66 +51,75 @@ async fn add_to_inventory<T, U>(
     opts: web::Json<InventoryAddOptions>,
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + SharedStore<Card, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + StoreBackend<Card> + Send + Sync + 'static,
 {
     let inv_id = path.0;
-    let mut snowflake_gen = sg.borrow_mut();
-    let cards: &Store<Card, U> = shared_store.get_store();
     let opts = opts.into_inner();
 
     let new_card = match opts {
         InventoryAddOptions::Existing(c) => c,
         InventoryAddOptions::New(type_id) => {
+            let mut snowflake_gen = sg.borrow_mut();
             let c = Card::generate(snowflake_gen.deref_mut(), type_id);
-            cards
-                .store(*c.id(), c.clone())
-                .map_err(error::ErrorInternalServerError)?;
-            c
+            let s2 = shared_store.clone();
+
+            web::block(move || -> utils::Result<Card> {
+                let cards: &Store<Card, U> = s2.get_store();
+                cards.store(*c.id(), c.clone())?;
+                Ok(c)
+            })
+            .await?
         }
     };
 
-    let inventories: &Store<Inventory, U> = shared_store.get_store();
-    {
-        let inv_ref = inventories
-            .load(inv_id)
-            .map_err(error::ErrorInternalServerError)?;
+    let inv = web::block(move || -> utils::Result<Inventory> {
+        let inventories: &Store<Inventory, U> = shared_store.get_store();
+        let inv_ref = inventories.load(inv_id)?;
         let mut handle = inv_ref.lock().unwrap();
 
         match handle.get_mut() {
             None => {
-                return Ok(HttpResponse::NotFound()
-                    .content_type("plain/text")
-                    .body(format!("Could not find inventory {}", inv_id)))
+                return Err(APIError::not_found(format!(
+                    "Could not find inventory {}",
+                    inv_id
+                )))
             }
             Some(r) => {
                 r.insert(new_card);
             }
         };
 
-        handle.store().map_err(error::ErrorInternalServerError)?;
-        Ok(HttpResponse::Ok().json(handle.get().unwrap()))
-    }
+        handle.store()?;
+        Ok(handle.get().unwrap().clone())
+    })
+    .await?;
+
+    Ok(HttpResponse::Ok().json(inv))
 }
 
 // POST /inventories
 async fn create_inventory<T, U>(
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let mut snowflake_gen = sg.borrow_mut();
-    let inventories: &Store<Inventory, U> = shared_store.get_store();
     let inv = Inventory::empty(snowflake_gen.generate());
+    let inv_clone = inv.clone();
 
-    inventories
-        .store(*inv.id(), inv.clone())
-        .map_err(error::ErrorInternalServerError)?;
+    web::block(move || -> utils::Result<()> {
+        let inventories: &Store<Inventory, U> = shared_store.get_store();
+        inventories.store(*inv_clone.id(), inv_clone)?;
+        Ok(())
+    })
+    .await?;
+
     Ok(HttpResponse::Ok().json(inv))
 }
 
@@ -113,7 +127,7 @@ where
 async fn get_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -121,37 +135,36 @@ where
     let inv_id = path.0;
     let card_id = path.1;
 
-    let inventories: &Store<Inventory, U> = shared_store.get_store();
-    let wrapper = inventories
-        .load(inv_id)
-        .map_err(error::ErrorInternalServerError)?;
-    let handle = wrapper.lock().unwrap();
+    let res: Card = web::block(move || -> utils::Result<Card> {
+        let inventories: &Store<Inventory, U> = shared_store.get_store();
+        let wrapper = inventories.load(inv_id)?;
+        let handle = wrapper.lock().unwrap();
 
-    let inv: &Inventory;
-    if let Some(v) = handle.get() {
-        inv = v;
-    } else {
-        return Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!("Could not find inventory {}", inv_id)));
-    }
+        if let Some(inv) = handle.get() {
+            match inv.get(card_id) {
+                Some(v) => Ok(v.clone()),
+                None => Err(APIError::not_found(format!(
+                    "Could not find card {} in inventory {}",
+                    card_id, inv_id
+                ))),
+            }
+        } else {
+            Err(APIError::not_found(format!(
+                "Could not find inventory {}",
+                inv_id
+            )))
+        }
+    })
+    .await?;
 
-    match inv.get(card_id) {
-        None => Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!(
-                "Could not find card {} in inventory {}",
-                card_id, inv_id
-            ))),
-        Some(card) => Ok(HttpResponse::Ok().json(card)),
-    }
+    Ok(HttpResponse::Ok().json(res))
 }
 
 // DELETE /inventories/{invid}/{cardid}
 async fn delete_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -159,38 +172,32 @@ where
     let inv_id = path.0;
     let card_id = path.1;
 
-    let inventories: &Store<Inventory, U> = shared_store.get_store();
-    let wrapper = inventories
-        .load(inv_id)
-        .map_err(error::ErrorInternalServerError)?;
-    let mut handle = wrapper.lock().unwrap();
-    let res: Option<Card>;
+    let res: Card = web::block(move || -> utils::Result<Card> {
+        let inventories: &Store<Inventory, U> = shared_store.get_store();
+        let wrapper = inventories.load(inv_id)?;
+        let mut handle = wrapper.lock().unwrap();
 
-    {
-        let inv: &mut Inventory;
-        if let Some(v) = handle.get_mut() {
-            inv = v;
+        if let Some(inv) = handle.get_mut() {
+            match inv.remove(card_id) {
+                None => Err(APIError::not_found(format!(
+                    "Could not find card {} in inventory {}",
+                    card_id, inv_id
+                ))),
+                Some(card) => {
+                    handle.store()?;
+                    Ok(card)
+                }
+            }
         } else {
-            return Ok(HttpResponse::NotFound()
-                .content_type("plain/text")
-                .body(format!("Could not find inventory {}", inv_id)));
+            Err(APIError::not_found(format!(
+                "Could not find inventory {}",
+                inv_id
+            )))
         }
+    })
+    .await?;
 
-        res = inv.remove(card_id);
-    }
-
-    match res {
-        None => Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!(
-                "Could not find card {} in inventory {}",
-                card_id, inv_id
-            ))),
-        Some(card) => {
-            handle.store().map_err(error::ErrorInternalServerError)?;
-            Ok(HttpResponse::Ok().json(card))
-        }
-    }
+    Ok(HttpResponse::Ok().json(res))
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -203,7 +210,7 @@ async fn move_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
     query: web::Query<CardMoveOptions>,
-) -> Result<HttpResponse>
+) -> utils::Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -211,55 +218,55 @@ where
     let from_inv_id = path.0;
     let card_id = path.1;
     let opts = query.into_inner();
-    let inventories: &Store<Inventory, U> = shared_store.get_store();
 
-    let from_wrapper = inventories
-        .load(from_inv_id)
-        .map_err(error::ErrorInternalServerError)?;
-    let mut from_handle = from_wrapper.lock().unwrap();
-    let from_inv: &mut Inventory;
+    web::block(move || -> utils::Result<()> {
+        let inventories: &Store<Inventory, U> = shared_store.get_store();
 
-    if let Some(inv) = from_handle.get_mut() {
-        from_inv = inv;
-    } else {
-        return Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!("Could not find inventory {}", from_inv_id)));
-    }
+        let from_wrapper = inventories.load(from_inv_id)?;
+        let mut from_handle = from_wrapper.lock().unwrap();
+        let from_inv: &mut Inventory;
 
-    let card: Card;
-    if let Some(c) = from_inv.remove(card_id) {
-        card = c;
-    } else {
-        return Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!(
+        if let Some(inv) = from_handle.get_mut() {
+            from_inv = inv;
+        } else {
+            return Err(APIError::not_found(format!(
+                "Could not find inventory {}",
+                from_inv_id
+            )));
+        }
+
+        let card: Card;
+        if let Some(c) = from_inv.remove(card_id) {
+            card = c;
+        } else {
+            return Err(APIError::not_found(format!(
                 "Could not find card {} in inventory {}",
                 card_id, from_inv_id
             )));
-    }
+        }
 
-    let to_wrapper = inventories
-        .load(opts.to)
-        .map_err(error::ErrorInternalServerError)?;
-    let mut to_handle = to_wrapper.lock().unwrap();
-    let to_inv: &mut Inventory;
+        let to_wrapper = inventories.load(opts.to)?;
+        let mut to_handle = to_wrapper.lock().unwrap();
+        let to_inv: &mut Inventory;
 
-    if let Some(inv) = to_handle.get_mut() {
-        to_inv = inv;
-    } else {
-        return Ok(HttpResponse::NotFound()
-            .content_type("plain/text")
-            .body(format!("Could not find inventory {}", opts.to)));
-    }
+        if let Some(inv) = to_handle.get_mut() {
+            to_inv = inv;
+        } else {
+            return Err(APIError::not_found(format!(
+                "Could not find inventory {}",
+                opts.to
+            )));
+        }
 
-    to_inv.insert(card);
+        to_inv.insert(card);
 
-    // TODO: handle rollback
-    from_handle
-        .store()
-        .map_err(error::ErrorInternalServerError)?;
-    to_handle.store().map_err(error::ErrorInternalServerError)?;
+        // TODO: handle rollback
+        from_handle.store()?;
+        to_handle.store()?;
+
+        Ok(())
+    })
+    .await?;
 
     Ok(HttpResponse::NoContent().finish())
 }
@@ -319,10 +326,8 @@ mod tests {
         let resp = block_on(get_inventory(
             web::Path::from((snowflake_gen.generate(),)),
             web::Data::new(shared_store),
-        ))
-        .unwrap();
-
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        ));
+        utils::expect_not_found(resp);
     }
 
     #[test]
@@ -465,16 +470,15 @@ mod tests {
         let resp = block_on(get_card(
             web::Path::from((inv_id, test_id)),
             shared_store.clone(),
-        ))
-        .unwrap();
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        ));
+        utils::expect_not_found(resp);
 
         let inv_store = shared_store.inventories();
         inv_store.store(inv_id, inv).unwrap();
 
         let test_id = snowflake_gen.generate();
-        let resp = block_on(get_card(web::Path::from((inv_id, test_id)), shared_store)).unwrap();
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        let resp = block_on(get_card(web::Path::from((inv_id, test_id)), shared_store));
+        utils::expect_not_found(resp);
     }
 
     #[test]
@@ -519,9 +523,8 @@ mod tests {
         let resp = block_on(delete_card(
             web::Path::from((inv_id, test_id)),
             shared_store.clone(),
-        ))
-        .unwrap();
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        ));
+        utils::expect_not_found(resp);
 
         let inv_store = shared_store.inventories();
         inv_store.store(inv_id, inv).unwrap();
@@ -530,9 +533,8 @@ mod tests {
         let resp = block_on(delete_card(
             web::Path::from((inv_id, test_id)),
             shared_store,
-        ))
-        .unwrap();
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        ));
+        utils::expect_not_found(resp);
     }
 
     #[test]
@@ -602,10 +604,8 @@ mod tests {
             web::Path::from((src_id, card_id)),
             shared_store.clone(),
             query,
-        ))
-        .unwrap();
-
-        assert_eq!(resp.status(), http::StatusCode::NOT_FOUND);
+        ));
+        utils::expect_not_found(resp);
 
         let src_wrapper = inv_store.load(src_id).unwrap();
         let src_handle = src_wrapper.lock().unwrap();
