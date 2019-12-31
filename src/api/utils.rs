@@ -98,6 +98,10 @@ impl APIError {
     pub fn not_found(msg: String) -> APIError {
         APIError::NotFound(msg)
     }
+
+    pub fn bad_transaction(msg: String) -> APIError {
+        APIError::BadTransaction(msg)
+    }
 }
 
 #[cfg(test)]
@@ -134,7 +138,7 @@ pub fn generate_random_card(snowflake_gen: &mut SnowflakeGenerator) -> Card {
 }
 
 #[cfg(test)]
-pub fn expect_not_found(resp: Result<HttpResponse>) {
+pub fn expect_not_found(resp: Result<HttpResponse>) -> String {
     let resp: APIError = match resp {
         Ok(v) => panic!(
             "expected APIError, got response with status code {}",
@@ -144,7 +148,23 @@ pub fn expect_not_found(resp: Result<HttpResponse>) {
     };
 
     match resp {
-        APIError::NotFound(_v) => {}
+        APIError::NotFound(v) => v,
         _ => panic!("expected APIError::NotFound, got {:?}", resp),
+    }
+}
+
+#[cfg(test)]
+pub fn expect_bad_transaction(resp: Result<HttpResponse>) -> String {
+    let resp: APIError = match resp {
+        Ok(v) => panic!(
+            "expected APIError, got response with status code {}",
+            v.status()
+        ),
+        Err(v) => v,
     };
+
+    match resp {
+        APIError::BadTransaction(v) => v,
+        _ => panic!("expected APIError::BadTransaction, got {:?}", resp),
+    }
 }

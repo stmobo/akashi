@@ -7,7 +7,7 @@ use crate::card::{Card, Inventory};
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
-use super::utils::{Result, APIError, SnowflakeGeneratorState};
+use super::utils::{APIError, Result, SnowflakeGeneratorState};
 
 // GET /inventories/{invid}
 async fn get_inventory<T, U>(
