@@ -1,5 +1,6 @@
+use actix_rt;
 use actix_web::{web, App, HttpServer};
-use futures::executor::block_on;
+
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +10,8 @@ use akashi::snowflake::SnowflakeGenerator;
 
 const BIND_URL: &str = "127.0.0.1:8088";
 
-async fn _main() -> std::io::Result<()> {
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
     let shared_store = web::Data::new(SharedLocalStore::new());
     let ctr: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
 
@@ -45,8 +47,4 @@ async fn _main() -> std::io::Result<()> {
     .unwrap()
     .run()
     .await
-}
-
-fn main() {
-    block_on(_main()).unwrap();
 }

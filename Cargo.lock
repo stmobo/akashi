@@ -274,6 +274,7 @@ dependencies = [
 name = "akashi"
 version = "0.1.0"
 dependencies = [
+ "actix-rt",
  "actix-web",
  "failure",
  "futures",
