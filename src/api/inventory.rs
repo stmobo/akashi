@@ -7,21 +7,20 @@ use crate::card::{Card, Inventory};
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
-use super::utils;
-use super::utils::{APIError, SnowflakeGeneratorState};
+use super::utils::{Result, APIError, SnowflakeGeneratorState};
 
 // GET /inventories/{invid}
 async fn get_inventory<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
 
-    let val = web::block(move || -> utils::Result<Inventory> {
+    let val = web::block(move || -> Result<Inventory> {
         let store: &Store<Inventory, U> = shared_store.get_store();
         let inv_ref = store.load(id)?;
         let handle = inv_ref.lock().unwrap();
@@ -51,7 +50,7 @@ async fn add_to_inventory<T, U>(
     opts: web::Json<InventoryAddOptions>,
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + SharedStore<Card, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + StoreBackend<Card> + Send + Sync + 'static,
@@ -66,7 +65,7 @@ where
             let c = Card::generate(snowflake_gen.deref_mut(), type_id);
             let s2 = shared_store.clone();
 
-            web::block(move || -> utils::Result<Card> {
+            web::block(move || -> Result<Card> {
                 let cards: &Store<Card, U> = s2.get_store();
                 cards.store(*c.id(), c.clone())?;
                 Ok(c)
@@ -75,7 +74,7 @@ where
         }
     };
 
-    let inv = web::block(move || -> utils::Result<Inventory> {
+    let inv = web::block(move || -> Result<Inventory> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
         let inv_ref = inventories.load(inv_id)?;
         let mut handle = inv_ref.lock().unwrap();
@@ -104,7 +103,7 @@ where
 async fn create_inventory<T, U>(
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -113,7 +112,7 @@ where
     let inv = Inventory::empty(snowflake_gen.generate());
     let inv_clone = inv.clone();
 
-    web::block(move || -> utils::Result<()> {
+    web::block(move || -> Result<()> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
         inventories.store(*inv_clone.id(), inv_clone)?;
         Ok(())
@@ -127,7 +126,7 @@ where
 async fn get_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -135,7 +134,7 @@ where
     let inv_id = path.0;
     let card_id = path.1;
 
-    let res: Card = web::block(move || -> utils::Result<Card> {
+    let res: Card = web::block(move || -> Result<Card> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
         let wrapper = inventories.load(inv_id)?;
         let handle = wrapper.lock().unwrap();
@@ -164,7 +163,7 @@ where
 async fn delete_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -172,7 +171,7 @@ where
     let inv_id = path.0;
     let card_id = path.1;
 
-    let res: Card = web::block(move || -> utils::Result<Card> {
+    let res: Card = web::block(move || -> Result<Card> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
         let wrapper = inventories.load(inv_id)?;
         let mut handle = wrapper.lock().unwrap();
@@ -210,7 +209,7 @@ async fn move_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
     query: web::Query<CardMoveOptions>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
@@ -219,7 +218,7 @@ where
     let card_id = path.1;
     let opts = query.into_inner();
 
-    web::block(move || -> utils::Result<()> {
+    web::block(move || -> Result<()> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
 
         let from_wrapper = inventories.load(from_inv_id)?;
