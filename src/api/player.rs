@@ -8,19 +8,18 @@ use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 
-use super::utils;
-use super::utils::{APIError, Pagination, SnowflakeGeneratorState};
+use super::utils::{APIError, Pagination, Result, SnowflakeGeneratorState};
 
 // GET /players
 async fn list_players<T, U>(
     query: web::Query<Pagination>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
-    let players: Vec<Player> = web::block(move || -> utils::Result<Vec<Player>> {
+    let players: Vec<Player> = web::block(move || -> Result<Vec<Player>> {
         let store: &Store<Player, U> = shared_store.get_store();
         let keys = store.keys(query.page, query.limit)?;
 
@@ -46,14 +45,14 @@ where
 async fn get_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
 
-    let r: Player = web::block(move || -> utils::Result<Player> {
+    let r: Player = web::block(move || -> Result<Player> {
         let store: &Store<Player, U> = shared_store.get_store();
         let pl_ref = store.load(id)?;
 
@@ -82,13 +81,13 @@ async fn player_resource_transaction<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
     transactions: web::Json<Vec<Transaction>>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
-    let res = web::block(move || -> utils::Result<Player> {
+    let res = web::block(move || -> Result<Player> {
         let store: &Store<Player, U> = shared_store.get_store();
         let pl_ref = store.load(id)?;
 
@@ -168,14 +167,14 @@ where
 async fn delete_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
 
-    web::block(move || -> utils::Result<()> {
+    web::block(move || -> Result<()> {
         let store: &Store<Player, U> = shared_store.get_store();
         let wrapper = store.load(id)?;
         let mut handle = wrapper.lock().unwrap();
@@ -196,7 +195,7 @@ where
 async fn new_player<T, U>(
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-) -> utils::Result<HttpResponse>
+) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
@@ -204,7 +203,7 @@ where
     let mut snowflake_gen = sg.borrow_mut();
     let pl = Player::empty(snowflake_gen.deref_mut());
 
-    let pl = web::block(move || -> utils::Result<Player> {
+    let pl = web::block(move || -> Result<Player> {
         let store: &Store<Player, U> = shared_store.get_store();
 
         let wrapper = store.load(*pl.id())?;
@@ -242,7 +241,9 @@ mod tests {
     use actix_web::http;
     use futures::executor::block_on;
 
+    use crate::api::utils;
     use crate::api::utils::{get_body_json, get_body_str, snowflake_generator, store};
+
     use crate::local_storage::SharedLocalStore;
     use crate::snowflake::SnowflakeGenerator;
 
