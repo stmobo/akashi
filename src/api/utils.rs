@@ -3,8 +3,8 @@ use actix_web::{error, web, HttpResponse};
 use failure::Fail;
 use serde::Deserialize;
 
-use std::cell::RefCell;
 use std::fmt;
+use std::sync::Mutex;
 
 use crate::snowflake::SnowflakeGenerator;
 
@@ -17,7 +17,7 @@ use crate::local_storage::SharedLocalStore;
 #[cfg(test)]
 use crate::card::Card;
 
-pub type SnowflakeGeneratorState = web::Data<RefCell<SnowflakeGenerator>>;
+pub type SnowflakeGeneratorState = web::Data<Mutex<SnowflakeGenerator>>;
 
 #[derive(Deserialize)]
 #[serde(default)]
@@ -104,9 +104,8 @@ impl APIError {
     }
 }
 
-#[cfg(test)]
 pub fn snowflake_generator(group_id: u64, worker_id: u64) -> SnowflakeGeneratorState {
-    web::Data::new(RefCell::new(SnowflakeGenerator::new(group_id, worker_id)))
+    web::Data::new(Mutex::new(SnowflakeGenerator::new(group_id, worker_id)))
 }
 
 #[cfg(test)]

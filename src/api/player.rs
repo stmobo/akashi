@@ -1,5 +1,4 @@
 use actix_web::{web, HttpResponse, Scope};
-use std::ops::DerefMut;
 
 use serde::Deserialize;
 
@@ -200,16 +199,20 @@ where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
-    let mut snowflake_gen = sg.borrow_mut();
-    let pl = Player::empty(snowflake_gen.deref_mut());
-
     let pl = web::block(move || -> Result<Player> {
+        let new_pl: Player;
+
+        {
+            let mut snowflake_gen = sg.lock().expect("snowflake generator lock poisoned");
+            new_pl = Player::empty(&mut snowflake_gen);
+        }
+
         let store: &Store<Player, U> = shared_store.get_store();
 
-        let wrapper = store.load(*pl.id())?;
+        let wrapper = store.load(*new_pl.id())?;
         let mut handle = wrapper.lock().unwrap();
 
-        handle.replace(pl);
+        handle.replace(new_pl);
         handle.store()?;
 
         Ok(handle.get().unwrap().clone())

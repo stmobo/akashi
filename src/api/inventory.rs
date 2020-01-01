@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::ops::DerefMut;
 
 use actix_web::{web, HttpResponse, Scope};
 
@@ -61,11 +60,15 @@ where
     let new_card = match opts {
         InventoryAddOptions::Existing(c) => c,
         InventoryAddOptions::New(type_id) => {
-            let mut snowflake_gen = sg.borrow_mut();
-            let c = Card::generate(snowflake_gen.deref_mut(), type_id);
             let s2 = shared_store.clone();
-
             web::block(move || -> Result<Card> {
+                let c: Card;
+
+                {
+                    let mut snowflake_gen = sg.lock().expect("snowflake generator lock poisoned");
+                    c = Card::generate(&mut snowflake_gen, type_id);
+                }
+
                 let cards: &Store<Card, U> = s2.get_store();
                 cards.store(*c.id(), c.clone())?;
                 Ok(c)
@@ -108,10 +111,14 @@ where
     T: SharedStore<Inventory, U> + Send + Sync + 'static,
     U: StoreBackend<Inventory> + Send + Sync + 'static,
 {
-    let mut snowflake_gen = sg.borrow_mut();
-    let inv = Inventory::empty(snowflake_gen.generate());
-    let inv_clone = inv.clone();
+    let inv: Inventory;
 
+    {
+        let mut snowflake_gen = sg.lock().expect("snowflake generator lock poisoned");
+        inv = Inventory::empty(snowflake_gen.generate());
+    }
+
+    let inv_clone = inv.clone();
     web::block(move || -> Result<()> {
         let inventories: &Store<Inventory, U> = shared_store.get_store();
         inventories.store(*inv_clone.id(), inv_clone)?;
@@ -358,7 +365,7 @@ mod tests {
         let inv: Inventory;
 
         {
-            let mut snowflake_gen = sg.borrow_mut();
+            let mut snowflake_gen = sg.lock().expect("snowflake generator lock poisoned");
             type_id = snowflake_gen.generate();
             inv = Inventory::empty(snowflake_gen.generate());
         }
@@ -405,8 +412,8 @@ mod tests {
         let inv: Inventory;
 
         {
-            let mut snowflake_gen = sg.borrow_mut();
-            card = utils::generate_random_card(snowflake_gen.deref_mut());
+            let mut snowflake_gen = sg.lock().expect("snowflake generator lock poisoned");
+            card = utils::generate_random_card(&mut snowflake_gen);
             inv = Inventory::empty(snowflake_gen.generate());
         }
 

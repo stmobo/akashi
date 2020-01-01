@@ -1,12 +1,11 @@
 use actix_rt;
 use actix_web::{web, App, HttpServer};
 
-use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 use akashi::api;
+use akashi::api::utils;
 use akashi::local_storage::{LocalStoreBackend, SharedLocalStore};
-use akashi::snowflake::SnowflakeGenerator;
 
 const BIND_URL: &str = "127.0.0.1:8088";
 
@@ -27,17 +26,19 @@ async fn main() -> std::io::Result<()> {
             *r += 1;
         }
 
+        let snowflake_gen = utils::snowflake_generator(0, id);
+
         println!("Started thread {}!", id);
 
         let players_scope = web::scope("/players")
             .app_data(shared_store.clone())
-            .data(RefCell::new(SnowflakeGenerator::new(0, id)));
+            .app_data(snowflake_gen.clone());
         let players_scope =
             api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(players_scope);
 
         let inv_scope = web::scope("/inventories")
             .app_data(shared_store.clone())
-            .data(RefCell::new(SnowflakeGenerator::new(1, id)));
+            .app_data(snowflake_gen.clone());
         let inv_scope =
             api::inventory::bind_routes::<SharedLocalStore, LocalStoreBackend>(inv_scope);
 
