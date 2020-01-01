@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::MetadataAttached;
 use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
@@ -66,4 +65,3 @@ impl Player {
     }
 }
 
-impl MetadataAttached for Player {}

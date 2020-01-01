@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::MetadataAttached;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
@@ -31,8 +30,6 @@ impl Card {
         &self.type_id
     }
 }
-
-impl MetadataAttached for Card {}
 
 #[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
 pub struct Inventory {
