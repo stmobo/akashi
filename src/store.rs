@@ -105,7 +105,7 @@ where
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let mut map = self.refs.lock().unwrap();
+        let mut map = self.refs.lock().expect("refs map lock poisoned");
 
         if !self.backend.exists(id)? {
             let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
@@ -127,14 +127,14 @@ where
 
     pub fn store(&self, id: Snowflake, object: T) -> Result<()> {
         let wrapper = self.load(id)?;
-        let mut handle = wrapper.lock().unwrap();
+        let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.replace(object);
         handle.store()
     }
 
     pub fn delete(&self, id: Snowflake) -> Result<()> {
         let wrapper = self.load(id)?;
-        let mut handle = wrapper.lock().unwrap();
+        let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.delete()
     }
 
