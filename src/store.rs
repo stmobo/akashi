@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use failure::{Fail, Error};
+use failure::{Error, Fail};
 
 use crate::snowflake::Snowflake;
 
