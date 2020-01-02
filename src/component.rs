@@ -202,10 +202,11 @@ pub trait ComponentsAttached {
 mod tests {
     use super::*;
     use std::any;
-    use std::sync::Mutex;
 
     use crate::card::Card;
     use crate::snowflake::SnowflakeGenerator;
+
+    use crate::local_storage::LocalComponentStorage;
 
     #[derive(PartialEq, Debug, Clone)]
     struct TestComponentA(u64);
@@ -219,38 +220,8 @@ mod tests {
     struct TestComponentC(f64);
     impl Component for TestComponentC {}
 
-    struct MockComponentStore<T: Component + Clone + 'static> {
-        map: Mutex<HashMap<Snowflake, T>>,
-    }
-
-    fn new_store<T: Component + Clone + 'static>() -> MockComponentStore<T> {
-        MockComponentStore {
-            map: Mutex::new(HashMap::new()),
-        }
-    }
-
-    impl<T: Component + Clone + 'static> ComponentStore<T> for MockComponentStore<T> {
-        fn load(&self, entity_id: Snowflake) -> Result<Option<T>> {
-            let map = self.map.lock().unwrap();
-            Ok(map.get(&entity_id).map(|x| x.clone()))
-        }
-
-        fn store(&self, entity_id: Snowflake, component: T) -> Result<()> {
-            let mut map = self.map.lock().unwrap();
-            map.insert(entity_id, component);
-            Ok(())
-        }
-
-        fn exists(&self, entity_id: Snowflake) -> Result<bool> {
-            let map = self.map.lock().unwrap();
-            Ok(map.contains_key(&entity_id))
-        }
-
-        fn delete(&self, entity_id: Snowflake) -> Result<()> {
-            let mut map = self.map.lock().unwrap();
-            map.remove(&entity_id);
-            Ok(())
-        }
+    fn new_store<T: Component + Clone + 'static>() -> LocalComponentStorage<T> {
+        LocalComponentStorage::new()
     }
 
     #[test]

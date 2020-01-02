@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::component::{ComponentManager, ComponentsAttached};
+use crate::component::{Component, ComponentManager, ComponentsAttached};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
 #[derive(Clone, Debug)]
@@ -99,6 +99,8 @@ impl Inventory {
         self.cards.get(&id)
     }
 }
+
+impl Component for Inventory {}
 
 mod tests {
     #[allow(unused_imports)]

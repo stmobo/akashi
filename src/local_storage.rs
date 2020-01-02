@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, RwLock};
 
-use failure::{Fail, Error, format_err};
+use failure::{Error, format_err};
 
 use crate::card::{Card, Inventory};
 use crate::player::Player;
@@ -16,7 +16,6 @@ pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,
     players: Store<Player, LocalStoreBackend>,
     cards: Store<Card, LocalStoreBackend>,
-    inventories: Store<Inventory, LocalStoreBackend>,
 }
 
 impl SharedLocalStore {
@@ -25,7 +24,6 @@ impl SharedLocalStore {
         SharedLocalStore {
             players: Store::new(backend.clone()),
             cards: Store::new(backend.clone()),
-            inventories: Store::new(backend.clone()),
             backend,
         }
     }
@@ -40,10 +38,6 @@ impl SharedLocalStore {
 
     pub fn cards(&self) -> &Store<Card, LocalStoreBackend> {
         &self.cards
-    }
-
-    pub fn inventories(&self) -> &Store<Inventory, LocalStoreBackend> {
-        &self.inventories
     }
 }
 
@@ -62,12 +56,6 @@ impl SharedStore<Player, LocalStoreBackend> for SharedLocalStore {
 impl SharedStore<Card, LocalStoreBackend> for SharedLocalStore {
     fn get_store<'a>(&'a self) -> &'a Store<Card, LocalStoreBackend> {
         self.cards()
-    }
-}
-
-impl SharedStore<Inventory, LocalStoreBackend> for SharedLocalStore {
-    fn get_store<'a>(&'a self) -> &'a Store<Inventory, LocalStoreBackend> {
-        self.inventories()
     }
 }
 
@@ -184,32 +172,29 @@ impl StoreBackend<Card> for LocalStoreBackend {
     }
 }
 
-impl StoreBackend<Inventory> for LocalStoreBackend {
+impl ComponentStore<Inventory> for LocalStoreBackend {
     fn exists(&self, id: Snowflake) -> Result<bool> {
         let inventories = self.inventories.read().unwrap();
         Ok(inventories.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Inventory> {
+    fn load(&self, id: Snowflake) -> Result<Option<Inventory>> {
         let map = self.inventories.read().unwrap();
-        match map.get(&id) {
-            None => Err(NotFoundError::new(id).into()),
-            Some(v) => {
-                let mut inv = Inventory::empty(id);
-                let cards = self.cards.read().unwrap();
+        Ok(map.get(&id).map(|card_vec| {
+            let mut inv = Inventory::empty(id);
+            let cards = self.cards.read().unwrap();
 
-                for card_id in v.iter() {
-                    if let Some(card) = cards.get(card_id) {
-                        inv.insert(card.clone());
-                    }
+            for card_id in card_vec.iter() {
+                if let Some(card) = cards.get(card_id) {
+                    inv.insert(card.clone());
                 }
-
-                Ok(inv)
             }
-        }
+
+            inv
+        }))
     }
 
-    fn store(&self, id: Snowflake, data: &Inventory) -> Result<()> {
+    fn store(&self, id: Snowflake, data: Inventory) -> Result<()> {
         {
             let mut cards = self.cards.write().unwrap();
             for card in data.iter() {
@@ -242,29 +227,17 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
 
         Ok(())
     }
-
-    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
-        let ids: Vec<Snowflake>;
-        let start_index = page * limit;
-
-        {
-            let inventories = self.inventories.read().unwrap();
-            ids = inventories
-                .keys()
-                .skip(start_index as usize)
-                .take(limit as usize)
-                .copied()
-                .collect();
-        }
-
-        Ok(ids)
-    }
 }
 
 pub struct LocalComponentStorage<T: Component + Clone + 'static> {
     data: RwLock<HashMap<Snowflake, T>>,
 }
 
+impl<T: Component + Clone + 'static> LocalComponentStorage<T> {
+    pub fn new() -> LocalComponentStorage<T> {
+        LocalComponentStorage { data: RwLock::new(HashMap::new()) }
+    }
+}
 
 impl<T: Component + Clone + 'static> ComponentStore<T> for LocalComponentStorage<T> {
     fn load(&self, entity_id: Snowflake) -> Result<Option<T>> {
@@ -314,37 +287,30 @@ mod tests {
             let pl_id = pl.id().clone();
 
             let players = store.players();
-            let inventories = store.inventories();
+            let cards = store.cards();
 
-            let mut inv = Inventory::empty(snowflake_gen.generate());
             let card = Card::generate(&mut snowflake_gen, cm);
             let card_id = card.id().clone();
-            let inv_id = inv.id().clone();
-
-            inv.insert(card);
 
             players.store(pl_id, pl).unwrap();
-            inventories.store(inv_id, inv).unwrap();
+            cards.store(card_id, card).unwrap();
 
-            (pl_id, inv_id, card_id)
+            (pl_id, card_id)
         });
 
         thread::sleep(Duration::from_millis(50));
 
-        let (player_id, inv_id, card_id) = handle.join().unwrap();
+        let (player_id, card_id) = handle.join().unwrap();
 
         let players = store.players();
-        let inventories = store.inventories();
+        let cards = store.cards();
 
         let pl_ref = players.load(player_id).unwrap();
         let pl_handle = pl_ref.lock().unwrap();
         assert!(pl_handle.get().is_some());
 
-        let inv_ref = inventories.load(inv_id).unwrap();
-        let inv_handle = inv_ref.lock().unwrap();
-        let inv = inv_handle.get().unwrap();
-
-        let card = inv.get(card_id);
-        assert!(card.is_some());
+        let card_ref = cards.load(card_id).unwrap();
+        let card_handle = card_ref.lock().unwrap();
+        assert!(card_handle.get().is_some());
     }
 }
