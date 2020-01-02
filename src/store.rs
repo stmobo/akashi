@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use failure::Fail;
+use failure::{Fail, Error};
 
 use crate::snowflake::Snowflake;
 
-type Result<T> = result::Result<T, Box<dyn Fail>>;
+type Result<T> = result::Result<T, Error>;
 
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
@@ -218,7 +218,7 @@ mod tests {
         fn load(&self, id: Snowflake) -> Result<MockStoredData> {
             let map = self.data.read().unwrap();
             match map.get(&id) {
-                None => Err(Box::new(NotFoundError::new(id))),
+                None => Err(NotFoundError::new(id).into()),
                 Some(pl) => Ok(pl.clone()),
             }
         }

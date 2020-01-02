@@ -2,14 +2,15 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, RwLock};
 
-use failure::Fail;
+use failure::{Fail, Error, format_err};
 
 use crate::card::{Card, Inventory};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::store::{NotFoundError, SharedStore, Store, StoreBackend};
+use crate::component::{Component, ComponentStore};
 
-type Result<T> = result::Result<T, Box<dyn Fail>>;
+type Result<T> = result::Result<T, Error>;
 
 pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,
@@ -103,7 +104,7 @@ impl StoreBackend<Player> for LocalStoreBackend {
         if let Some(s) = players.get(&id) {
             Ok(s.clone())
         } else {
-            Err(Box::new(NotFoundError::new(id)))
+            Err(NotFoundError::new(id).into())
         }
     }
 
@@ -148,7 +149,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
     fn load(&self, id: Snowflake) -> Result<Card> {
         let cards = self.cards.read().unwrap();
         match cards.get(&id) {
-            None => Err(Box::new(NotFoundError::new(id))),
+            None => Err(NotFoundError::new(id).into()),
             Some(card) => Ok(card.clone()),
         }
     }
@@ -192,7 +193,7 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
     fn load(&self, id: Snowflake) -> Result<Inventory> {
         let map = self.inventories.read().unwrap();
         match map.get(&id) {
-            None => Err(Box::new(NotFoundError::new(id))),
+            None => Err(NotFoundError::new(id).into()),
             Some(v) => {
                 let mut inv = Inventory::empty(id);
                 let cards = self.cards.read().unwrap();

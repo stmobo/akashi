@@ -8,14 +8,14 @@ use std::sync::Arc;
 extern crate downcast_rs;
 use downcast_rs::Downcast;
 
-use failure::Fail;
+use failure::{Fail, Error};
 
 use crate::snowflake::Snowflake;
 
 pub trait Component: Downcast + Sync + Send {}
 downcast_rs::impl_downcast!(Component);
 
-pub type Result<T> = result::Result<T, Box<dyn Fail>>;
+pub type Result<T> = result::Result<T, Error>;
 
 pub trait ComponentStore<T: Component + 'static> {
     fn load(&self, entity_id: Snowflake) -> Result<Option<T>>;
@@ -71,9 +71,9 @@ impl ComponentTypeData {
                     if let Ok(val) = res {
                         s2.store(ent_id, *val)
                     } else {
-                        Err(Box::new(DowncastError {
+                        Err(DowncastError {
                             component_name: any::type_name::<T>(),
-                        }))
+                        }.into())
                     }
                 },
             ),
@@ -112,9 +112,9 @@ impl ComponentManager {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
             (data.store)(entity_id, Box::new(component))
         } else {
-            Err(Box::new(TypeNotFoundError {
+            Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }))
+            }.into())
         }
     }
 
@@ -131,9 +131,9 @@ impl ComponentManager {
                 Ok(None)
             }
         } else {
-            Err(Box::new(TypeNotFoundError {
+            Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }))
+            }.into())
         }
     }
 
@@ -141,9 +141,9 @@ impl ComponentManager {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
             (data.delete)(entity_id)
         } else {
-            Err(Box::new(TypeNotFoundError {
+            Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }))
+            }.into())
         }
     }
 
@@ -151,9 +151,9 @@ impl ComponentManager {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
             (data.exists)(entity_id)
         } else {
-            Err(Box::new(TypeNotFoundError {
+            Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }))
+            }.into())
         }
     }
 }
