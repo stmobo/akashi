@@ -4,9 +4,11 @@ use std::fmt;
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use failure::Fail;
+
 use crate::snowflake::Snowflake;
 
-type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
+type Result<T> = result::Result<T, Box<dyn Fail>>;
 
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
@@ -155,7 +157,8 @@ pub trait StoreBackend<T> {
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Fail, Debug, Clone)]
+#[fail(display = "could not find object {}", id)]
 pub struct NotFoundError {
     id: Snowflake,
 }
@@ -163,18 +166,6 @@ pub struct NotFoundError {
 impl NotFoundError {
     pub fn new(id: Snowflake) -> NotFoundError {
         NotFoundError { id }
-    }
-}
-
-impl fmt::Display for NotFoundError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "could not find object {}", self.id)
-    }
-}
-
-impl error::Error for NotFoundError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
     }
 }
 

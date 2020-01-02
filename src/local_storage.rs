@@ -3,12 +3,14 @@ use std::error;
 use std::result;
 use std::sync::{Arc, RwLock};
 
+use failure::Fail;
+
 use crate::card::{Card, Inventory};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::store::{NotFoundError, SharedStore, Store, StoreBackend};
 
-type Result<T> = result::Result<T, Box<dyn error::Error + Send + Sync>>;
+type Result<T> = result::Result<T, Box<dyn Fail>>;
 
 pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,
@@ -267,6 +269,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::snowflake::SnowflakeGenerator;
+    use crate::component::ComponentManager;
 
     #[test]
     fn threaded_access() {
@@ -277,14 +280,16 @@ mod tests {
 
         let s2 = store.clone();
         let thread_2_typeid = type_id.clone();
+
+        let cm = Arc::new(ComponentManager::build().finish());
+
         let handle = thread::spawn(move || {
             let store = s2;
             let type_id = thread_2_typeid;
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
-            let mut pl = Player::empty(&mut snowflake_gen);
+            let mut pl = Player::empty(&mut snowflake_gen, cm);
             let pl_id = pl.id().clone();
-            pl.set_resource(0, 10);
 
             let players = store.players();
             let inventories = store.inventories();
@@ -292,19 +297,19 @@ mod tests {
             let mut inv = Inventory::empty(snowflake_gen.generate());
             let card = Card::generate(&mut snowflake_gen, type_id);
             let card_id = card.id().clone();
+            let inv_id = inv.id().clone();
 
             inv.insert(card);
-            pl.attach_inventory("cards", *inv.id());
 
-            players.store(*pl.id(), pl).unwrap();
-            inventories.store(*inv.id(), inv).unwrap();
+            players.store(pl_id, pl).unwrap();
+            inventories.store(inv_id, inv).unwrap();
 
-            (pl_id, card_id)
+            (pl_id, inv_id, card_id)
         });
 
         thread::sleep(Duration::from_millis(50));
 
-        let (player_id, card_id) = handle.join().unwrap();
+        let (player_id, inv_id, card_id) = handle.join().unwrap();
 
         let players = store.players();
         let inventories = store.inventories();
@@ -313,11 +318,7 @@ mod tests {
         let pl_handle = pl_ref.lock().unwrap();
         let pl = pl_handle.get().unwrap();
 
-        assert!(pl.get_resource(0).is_some());
-        assert_eq!(pl.get_resource(0).unwrap(), 10);
-
-        let inv_id = pl.get_inventory("cards").unwrap();
-        let inv_ref = inventories.load(*inv_id).unwrap();
+        let inv_ref = inventories.load(inv_id).unwrap();
         let inv_handle = inv_ref.lock().unwrap();
         let inv = inv_handle.get().unwrap();
 

@@ -1,67 +1,39 @@
-use std::collections::HashMap;
+use std::sync::Arc;
+use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
-
-use crate::resources::{ResourceCount, ResourceID};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
+use crate::component::ComponentManager;
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Debug, Clone)]
 pub struct Player {
     id: Snowflake,
-    resources: HashMap<ResourceID, u64>,
-    inventories: HashMap<String, Snowflake>,
+    component_manager: Arc<ComponentManager>,
 }
 
 impl Player {
-    pub fn new(
-        id: Snowflake,
-        resources: HashMap<ResourceID, u64>,
-        inventories: HashMap<String, Snowflake>,
-    ) -> Player {
-        Player {
-            id,
-            resources,
-            inventories,
-        }
+    pub fn new(id: Snowflake, component_manager: Arc<ComponentManager>) -> Player {
+        Player { id, component_manager }
     }
 
-    pub fn empty(snowflake_gen: &mut SnowflakeGenerator) -> Player {
+    pub fn empty(snowflake_gen: &mut SnowflakeGenerator, component_manager: Arc<ComponentManager>) -> Player {
         Player {
             id: snowflake_gen.generate(),
-            resources: HashMap::new(),
-            inventories: HashMap::new(),
+            component_manager,
         }
     }
 
-    pub fn id(&self) -> &Snowflake {
-        &self.id
+    pub fn id(&self) -> Snowflake {
+        self.id
     }
 
-    pub fn get_inventory(&self, name: &str) -> Option<&Snowflake> {
-        self.inventories.get(name)
+    pub fn component_manager(&self) -> &ComponentManager {
+        self.component_manager.deref()
     }
+}
 
-    pub fn attach_inventory(&mut self, name: &str, id: Snowflake) -> Option<Snowflake> {
-        self.inventories.insert(String::from(name), id)
-    }
-
-    pub fn resources(&self) -> &HashMap<ResourceID, ResourceCount> {
-        &self.resources
-    }
-
-    pub fn resources_mut(&mut self) -> &mut HashMap<ResourceID, ResourceCount> {
-        &mut self.resources
-    }
-
-    pub fn get_resource(&self, id: ResourceID) -> Option<ResourceCount> {
-        match self.resources.get(&id) {
-            None => None,
-            Some(val) => Some(*val),
-        }
-    }
-
-    pub fn set_resource(&mut self, id: ResourceID, count: ResourceCount) -> Option<ResourceCount> {
-        self.resources.insert(id, count)
+impl PartialEq for Player {
+    fn eq(&self, other: &Self) -> bool {
+        (self.id == other.id) && Arc::ptr_eq(&self.component_manager, &other.component_manager)
     }
 }
 
