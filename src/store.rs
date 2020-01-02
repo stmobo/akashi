@@ -92,19 +92,16 @@ where
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        if !self.backend.exists(id)? {
-            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
-            let r = Arc::new(Mutex::new(handle));
-            self.refs.insert(id, Arc::downgrade(&r));
-            return Ok(r);
-        }
-
         let r = self.refs.get(&id).and_then(|wk| wk.upgrade());
+
         if let Some(locked_ref) = r {
             Ok(locked_ref)
         } else {
-            let obj = self.backend.load(id)?;
-            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, Some(obj));
+            let mut handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
+            if self.backend.exists(id)? {
+                let obj = self.backend.load(id)?;
+                handle.replace(obj);
+            }
 
             let r = Arc::new(Mutex::new(handle));
             self.refs.insert(id, Arc::downgrade(&r));
