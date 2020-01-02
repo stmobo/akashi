@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::result;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
+use chashmap::CHashMap;
 use failure::{Error, Fail};
 
 use crate::snowflake::Snowflake;
@@ -77,7 +77,7 @@ where
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
-    refs: Mutex<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
+    refs: CHashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>,
 }
 
 impl<T, U> Store<T, U>
@@ -87,42 +87,29 @@ where
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
-            refs: Mutex::new(HashMap::new()),
+            refs: CHashMap::new(),
         }
-    }
-
-    fn load_new_ref(
-        &self,
-        map: &mut MutexGuard<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
-        id: Snowflake,
-    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let obj = self.backend.load(id)?;
-        let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, Some(obj));
-
-        let r = Arc::new(Mutex::new(handle));
-        map.insert(id, Arc::downgrade(&r));
-        Ok(r)
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let mut map = self.refs.lock().expect("refs map lock poisoned");
-
         if !self.backend.exists(id)? {
             let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
             let r = Arc::new(Mutex::new(handle));
-            map.insert(id, Arc::downgrade(&r));
+            self.refs.insert(id, Arc::downgrade(&r));
             return Ok(r);
         }
 
-        let r: StrongLockedRef<StoreHandle<T, U>> = match map.get(&id) {
-            None => self.load_new_ref(&mut map, id)?,
-            Some(wk) => match wk.upgrade() {
-                None => self.load_new_ref(&mut map, id)?,
-                Some(strong) => strong,
-            },
-        };
+        let r = self.refs.get(&id).and_then(|wk| wk.upgrade());
+        if let Some(locked_ref) = r {
+            Ok(locked_ref)
+        } else {
+            let obj = self.backend.load(id)?;
+            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, Some(obj));
 
-        Ok(r)
+            let r = Arc::new(Mutex::new(handle));
+            self.refs.insert(id, Arc::downgrade(&r));
+            Ok(r)
+        }
     }
 
     pub fn store(&self, id: Snowflake, object: T) -> Result<()> {
@@ -171,6 +158,7 @@ impl NotFoundError {
 mod tests {
     use super::*;
 
+    use std::collections::HashMap;
     use std::sync::{Arc, RwLock};
     use std::thread;
 

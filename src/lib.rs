@@ -1,6 +1,5 @@
 extern crate failure;
 extern crate failure_derive;
-extern crate lazy_static;
 
 //pub mod api;
 pub mod card;
