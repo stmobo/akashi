@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error;
 use std::result;
 use std::sync::{Arc, RwLock};
 
@@ -213,12 +212,12 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
         {
             let mut cards = self.cards.write().unwrap();
             for card in data.iter() {
-                cards.insert(*card.id(), card.clone());
+                cards.insert(card.id(), card.clone());
             }
         }
 
         let mut inventories = self.inventories.write().unwrap();
-        let ids: Vec<Snowflake> = data.iter().map(|x| *x.id()).collect();
+        let ids: Vec<Snowflake> = data.iter().map(|x| x.id()).collect();
         inventories.insert(id, ids);
         Ok(())
     }
@@ -268,34 +267,27 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::snowflake::SnowflakeGenerator;
     use crate::component::ComponentManager;
+    use crate::snowflake::SnowflakeGenerator;
 
     #[test]
     fn threaded_access() {
         let store = Arc::new(SharedLocalStore::new());
-        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let type_id = snowflake_gen.generate();
-        let _type2_id = snowflake_gen.generate();
-
         let s2 = store.clone();
-        let thread_2_typeid = type_id.clone();
-
         let cm = Arc::new(ComponentManager::build().finish());
 
         let handle = thread::spawn(move || {
             let store = s2;
-            let type_id = thread_2_typeid;
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
-            let mut pl = Player::empty(&mut snowflake_gen, cm);
+            let pl = Player::empty(&mut snowflake_gen, cm.clone());
             let pl_id = pl.id().clone();
 
             let players = store.players();
             let inventories = store.inventories();
 
             let mut inv = Inventory::empty(snowflake_gen.generate());
-            let card = Card::generate(&mut snowflake_gen, type_id);
+            let card = Card::generate(&mut snowflake_gen, cm);
             let card_id = card.id().clone();
             let inv_id = inv.id().clone();
 
@@ -316,7 +308,7 @@ mod tests {
 
         let pl_ref = players.load(player_id).unwrap();
         let pl_handle = pl_ref.lock().unwrap();
-        let pl = pl_handle.get().unwrap();
+        assert!(pl_handle.get().is_some());
 
         let inv_ref = inventories.load(inv_id).unwrap();
         let inv_handle = inv_ref.lock().unwrap();
@@ -324,8 +316,5 @@ mod tests {
 
         let card = inv.get(card_id);
         assert!(card.is_some());
-
-        let card = card.unwrap();
-        assert_eq!(*card.type_id(), type_id);
     }
 }

@@ -1,37 +1,59 @@
 use std::collections::HashMap;
+use std::ops::Deref;
+use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-
+use crate::component::{ComponentManager, ComponentsAttached};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug)]
 pub struct Card {
     id: Snowflake,
-    type_id: Snowflake,
+    component_manager: Arc<ComponentManager>,
 }
 
 impl Card {
-    pub fn new(id: Snowflake, type_id: Snowflake) -> Card {
-        Card { id, type_id }
-    }
-
-    pub fn generate(snowflake_gen: &mut SnowflakeGenerator, type_id: Snowflake) -> Card {
+    pub fn new(id: Snowflake, component_manager: Arc<ComponentManager>) -> Card {
         Card {
-            id: snowflake_gen.generate(),
-            type_id,
+            id,
+            component_manager,
         }
     }
 
-    pub fn id(&self) -> &Snowflake {
-        &self.id
+    pub fn generate(
+        snowflake_gen: &mut SnowflakeGenerator,
+        component_manager: Arc<ComponentManager>,
+    ) -> Card {
+        Card {
+            id: snowflake_gen.generate(),
+            component_manager,
+        }
     }
 
-    pub fn type_id(&self) -> &Snowflake {
-        &self.type_id
+    pub fn id(&self) -> Snowflake {
+        self.id
+    }
+
+    pub fn component_manager(&self) -> &ComponentManager {
+        self.component_manager.deref()
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Eq, PartialEq, Debug)]
+impl PartialEq for Card {
+    fn eq(&self, other: &Self) -> bool {
+        (self.id == other.id) && Arc::ptr_eq(&self.component_manager, &other.component_manager)
+    }
+}
+
+impl ComponentsAttached for Card {
+    fn id(&self) -> Snowflake {
+        self.id()
+    }
+    fn component_manager(&self) -> &ComponentManager {
+        self.component_manager()
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct Inventory {
     id: Snowflake,
     cards: HashMap<Snowflake, Card>,
@@ -88,37 +110,35 @@ mod tests {
     #[test]
     fn test_card_generate() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let type_id = snowflake_gen.generate();
+        let cm = Arc::new(ComponentManager::build().finish());
 
-        let card1 = Card::generate(&mut snowflake_gen, type_id);
-        let card2 = Card::generate(&mut snowflake_gen, type_id);
+        let card1 = Card::generate(&mut snowflake_gen, cm.clone());
+        let card2 = Card::generate(&mut snowflake_gen, cm);
 
         assert_ne!(card1.id(), card2.id());
-        assert_eq!(card1.type_id(), card2.type_id());
     }
 
     #[test]
     fn test_inv() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let type_id = snowflake_gen.generate();
-
+        let cm = Arc::new(ComponentManager::build().finish());
         let mut inv = Inventory::empty(snowflake_gen.generate());
 
         assert_eq!(inv.len(), 0);
         assert!(inv.is_empty());
 
-        let card = Card::generate(&mut snowflake_gen, type_id);
+        let card = Card::generate(&mut snowflake_gen, cm);
         let id = card.id();
 
         let res = inv.insert(card.clone());
         assert!(res.is_none());
-        assert!(inv.contains_key(*id));
+        assert!(inv.contains_key(id));
         assert_eq!(inv.len(), 1);
 
-        assert!(inv.get(*id).is_some());
-        assert_eq!(inv.get(*id).unwrap().id(), id);
+        assert!(inv.get(id).is_some());
+        assert_eq!(inv.get(id).unwrap().id(), id);
 
-        let res = inv.remove(*id);
+        let res = inv.remove(id);
         assert!(res.is_some());
         assert_eq!(res.unwrap().id(), id);
     }

@@ -1,10 +1,6 @@
-#[macro_use]
-extern crate lazy_static;
-
 extern crate failure;
-
-#[macro_use]
 extern crate failure_derive;
+extern crate lazy_static;
 
 //pub mod api;
 pub mod card;

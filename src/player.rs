@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use std::ops::Deref;
+use std::sync::Arc;
 
+use crate::component::{ComponentManager, ComponentsAttached};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
-use crate::component::ComponentManager;
 
 #[derive(Debug, Clone)]
 pub struct Player {
@@ -12,10 +12,16 @@ pub struct Player {
 
 impl Player {
     pub fn new(id: Snowflake, component_manager: Arc<ComponentManager>) -> Player {
-        Player { id, component_manager }
+        Player {
+            id,
+            component_manager,
+        }
     }
 
-    pub fn empty(snowflake_gen: &mut SnowflakeGenerator, component_manager: Arc<ComponentManager>) -> Player {
+    pub fn empty(
+        snowflake_gen: &mut SnowflakeGenerator,
+        component_manager: Arc<ComponentManager>,
+    ) -> Player {
         Player {
             id: snowflake_gen.generate(),
             component_manager,
@@ -37,3 +43,11 @@ impl PartialEq for Player {
     }
 }
 
+impl ComponentsAttached for Player {
+    fn id(&self) -> Snowflake {
+        self.id()
+    }
+    fn component_manager(&self) -> &ComponentManager {
+        self.component_manager()
+    }
+}

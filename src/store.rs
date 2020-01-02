@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::error;
-use std::fmt;
 use std::result;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 

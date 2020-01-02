@@ -42,7 +42,7 @@ async fn main() -> std::io::Result<()> {
         //let inv_scope =
         //    api::inventory::bind_routes::<SharedLocalStore, LocalStoreBackend>(inv_scope);
 
-        App::new()//.service(players_scope).service(inv_scope)
+        App::new() //.service(players_scope).service(inv_scope)
     })
     .bind("127.0.0.1:8088")
     .unwrap()
