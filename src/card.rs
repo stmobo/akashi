@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn test_card_generate() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let cm = Arc::new(ComponentManager::build().finish());
+        let cm = Arc::new(ComponentManager::new());
 
         let card1 = Card::generate(&mut snowflake_gen, cm.clone());
         let card2 = Card::generate(&mut snowflake_gen, cm);
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn test_inv() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let cm = Arc::new(ComponentManager::build().finish());
+        let cm = Arc::new(ComponentManager::new());
         let mut inv = Inventory::empty(snowflake_gen.generate());
 
         assert_eq!(inv.len(), 0);

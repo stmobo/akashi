@@ -274,7 +274,7 @@ mod tests {
     fn threaded_access() {
         let store = Arc::new(SharedLocalStore::new());
         let s2 = store.clone();
-        let cm = Arc::new(ComponentManager::build().finish());
+        let cm = Arc::new(ComponentManager::new());
 
         let handle = thread::spawn(move || {
             let store = s2;

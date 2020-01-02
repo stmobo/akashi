@@ -84,39 +84,24 @@ impl ComponentTypeData {
 }
 
 #[derive(Debug)]
-pub struct ComponentManagerBuilder {
+pub struct ComponentManager {
     component_types: HashMap<TypeId, ComponentTypeData>,
 }
 
-impl ComponentManagerBuilder {
-    pub fn register_component<T, U>(mut self, store: U) -> Self
+impl ComponentManager {
+    pub fn new() -> ComponentManager {
+        ComponentManager {
+            component_types: HashMap::new(),
+        }
+    }
+
+    pub fn register_component<T, U>(&mut self, store: U)
     where
         T: Component + 'static,
         U: ComponentStore<T> + Sync + Send + 'static,
     {
         self.component_types
             .insert(TypeId::of::<T>(), ComponentTypeData::new(store));
-
-        self
-    }
-
-    pub fn finish(self) -> ComponentManager {
-        ComponentManager {
-            component_types: self.component_types,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct ComponentManager {
-    component_types: HashMap<TypeId, ComponentTypeData>,
-}
-
-impl ComponentManager {
-    pub fn build() -> ComponentManagerBuilder {
-        ComponentManagerBuilder {
-            component_types: HashMap::new(),
-        }
     }
 
     fn set_component<T: Component + 'static>(
@@ -178,13 +163,13 @@ impl ComponentManager {
     display = "No handlers registered for Components of type {}",
     component_name
 )]
-struct TypeNotFoundError {
+pub struct TypeNotFoundError {
     component_name: String,
 }
 
 #[derive(Fail, Debug)]
 #[fail(display = "Failed to downcast to type {}", component_name)]
-struct DowncastError {
+pub struct DowncastError {
     component_name: &'static str,
 }
 
@@ -216,6 +201,7 @@ pub trait ComponentsAttached {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::any;
     use std::sync::Mutex;
 
     use crate::card::Card;
@@ -270,19 +256,47 @@ mod tests {
     #[test]
     fn test_build_component_manager() {
         // Check to make sure this doesn't panic or anything.
-        let _cm = ComponentManager::build()
-            .register_component(new_store::<TestComponentA>())
-            .register_component(new_store::<TestComponentB>())
-            .register_component(new_store::<TestComponentC>())
-            .finish();
+        let mut cm = ComponentManager::new();
+        cm.register_component(new_store::<TestComponentA>());
+        cm.register_component(new_store::<TestComponentB>());
+        cm.register_component(new_store::<TestComponentC>());
+    }
+
+    fn expect_err<E, T>(res: Result<T>)
+    where
+        E: Fail + Send + Sync,
+        T: fmt::Debug,
+    {
+        match res {
+            Ok(v) => panic!("expected failure, got Ok value: {:?}", v),
+            Err(e) => e.downcast_ref::<E>().expect(
+                format!("Could not downcast error to {:?}", any::type_name::<E>()).as_str(),
+            ),
+        };
+    }
+
+    #[test]
+    fn test_unregistered_type() {
+        let mut cm = ComponentManager::new();
+        cm.register_component(new_store::<TestComponentA>());
+
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
+
+        // Check to make sure attempts to use unregistered component types are gracefully handled.
+        expect_err::<TypeNotFoundError, Option<TestComponentB>>(card.get_component());
+        expect_err::<TypeNotFoundError, ()>(
+            card.set_component::<TestComponentB>(TestComponentB(5)),
+        );
+        expect_err::<TypeNotFoundError, bool>(card.has_component::<TestComponentB>());
+        expect_err::<TypeNotFoundError, ()>(card.delete_component::<TestComponentB>());
     }
 
     #[test]
     fn test_load_store_components() {
-        let cm = ComponentManager::build()
-            .register_component(new_store::<TestComponentA>())
-            .register_component(new_store::<TestComponentB>())
-            .finish();
+        let mut cm = ComponentManager::new();
+        cm.register_component(new_store::<TestComponentA>());
+        cm.register_component(new_store::<TestComponentB>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
@@ -308,9 +322,8 @@ mod tests {
 
     #[test]
     fn test_components_exist() {
-        let cm = ComponentManager::build()
-            .register_component(new_store::<TestComponentA>())
-            .finish();
+        let mut cm = ComponentManager::new();
+        cm.register_component(new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
@@ -327,9 +340,8 @@ mod tests {
 
     #[test]
     fn test_delete_components() {
-        let cm = ComponentManager::build()
-            .register_component(new_store::<TestComponentA>())
-            .finish();
+        let mut cm = ComponentManager::new();
+        cm.register_component(new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
