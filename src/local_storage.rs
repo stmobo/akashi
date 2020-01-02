@@ -261,6 +261,35 @@ impl StoreBackend<Inventory> for LocalStoreBackend {
     }
 }
 
+pub struct LocalComponentStorage<T: Component + Clone + 'static> {
+    data: RwLock<HashMap<Snowflake, T>>,
+}
+
+
+impl<T: Component + Clone + 'static> ComponentStore<T> for LocalComponentStorage<T> {
+    fn load(&self, entity_id: Snowflake) -> Result<Option<T>> {
+        let data_map = self.data.read().map_err(|_e| format_err!("storage lock poisoned"))?;
+        Ok(data_map.get(&entity_id).map(|x| x.clone()))
+    }
+
+    fn store(&self, entity_id: Snowflake, component: T) -> Result<()> {
+        let mut data_map = self.data.write().map_err(|_e| format_err!("storage lock poisoned"))?;
+        data_map.insert(entity_id, component);
+        Ok(())
+    }
+
+    fn exists(&self, entity_id: Snowflake) -> Result<bool> {
+        let data_map = self.data.read().map_err(|_e| format_err!("storage lock poisoned"))?;
+        Ok(data_map.contains_key(&entity_id))
+    }
+
+    fn delete(&self, entity_id: Snowflake) -> Result<()> {
+        let mut data_map = self.data.write().map_err(|_e| format_err!("storage lock poisoned"))?;
+        data_map.remove(&entity_id);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
