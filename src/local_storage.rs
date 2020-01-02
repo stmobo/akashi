@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, RwLock};
 
-use failure::{Error, format_err};
+use failure::{format_err, Error};
 
 use crate::card::{Card, Inventory};
+use crate::component::{Component, ComponentManager, ComponentStore};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::store::{NotFoundError, SharedStore, Store, StoreBackend};
-use crate::component::{Component, ComponentStore};
 
 type Result<T> = result::Result<T, Error>;
 
@@ -173,12 +173,12 @@ impl StoreBackend<Card> for LocalStoreBackend {
 }
 
 impl ComponentStore<Inventory> for LocalStoreBackend {
-    fn exists(&self, id: Snowflake) -> Result<bool> {
+    fn exists(&self, id: Snowflake, _cm: &ComponentManager) -> Result<bool> {
         let inventories = self.inventories.read().unwrap();
         Ok(inventories.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Option<Inventory>> {
+    fn load(&self, id: Snowflake, _cm: &ComponentManager) -> Result<Option<Inventory>> {
         let map = self.inventories.read().unwrap();
         Ok(map.get(&id).map(|card_vec| {
             let mut inv = Inventory::empty(id);
@@ -194,7 +194,7 @@ impl ComponentStore<Inventory> for LocalStoreBackend {
         }))
     }
 
-    fn store(&self, id: Snowflake, data: Inventory) -> Result<()> {
+    fn store(&self, id: Snowflake, data: Inventory, _cm: &ComponentManager) -> Result<()> {
         {
             let mut cards = self.cards.write().unwrap();
             for card in data.iter() {
@@ -208,7 +208,7 @@ impl ComponentStore<Inventory> for LocalStoreBackend {
         Ok(())
     }
 
-    fn delete(&self, id: Snowflake) -> Result<()> {
+    fn delete(&self, id: Snowflake, _cm: &ComponentManager) -> Result<()> {
         let inv: Vec<Snowflake>;
         {
             let mut inventories = self.inventories.write().unwrap();
@@ -235,29 +235,43 @@ pub struct LocalComponentStorage<T: Component + Clone + 'static> {
 
 impl<T: Component + Clone + 'static> LocalComponentStorage<T> {
     pub fn new() -> LocalComponentStorage<T> {
-        LocalComponentStorage { data: RwLock::new(HashMap::new()) }
+        LocalComponentStorage {
+            data: RwLock::new(HashMap::new()),
+        }
     }
 }
 
 impl<T: Component + Clone + 'static> ComponentStore<T> for LocalComponentStorage<T> {
-    fn load(&self, entity_id: Snowflake) -> Result<Option<T>> {
-        let data_map = self.data.read().map_err(|_e| format_err!("storage lock poisoned"))?;
+    fn load(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<Option<T>> {
+        let data_map = self
+            .data
+            .read()
+            .map_err(|_e| format_err!("storage lock poisoned"))?;
         Ok(data_map.get(&entity_id).map(|x| x.clone()))
     }
 
-    fn store(&self, entity_id: Snowflake, component: T) -> Result<()> {
-        let mut data_map = self.data.write().map_err(|_e| format_err!("storage lock poisoned"))?;
+    fn store(&self, entity_id: Snowflake, component: T, _cm: &ComponentManager) -> Result<()> {
+        let mut data_map = self
+            .data
+            .write()
+            .map_err(|_e| format_err!("storage lock poisoned"))?;
         data_map.insert(entity_id, component);
         Ok(())
     }
 
-    fn exists(&self, entity_id: Snowflake) -> Result<bool> {
-        let data_map = self.data.read().map_err(|_e| format_err!("storage lock poisoned"))?;
+    fn exists(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<bool> {
+        let data_map = self
+            .data
+            .read()
+            .map_err(|_e| format_err!("storage lock poisoned"))?;
         Ok(data_map.contains_key(&entity_id))
     }
 
-    fn delete(&self, entity_id: Snowflake) -> Result<()> {
-        let mut data_map = self.data.write().map_err(|_e| format_err!("storage lock poisoned"))?;
+    fn delete(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<()> {
+        let mut data_map = self
+            .data
+            .write()
+            .map_err(|_e| format_err!("storage lock poisoned"))?;
         data_map.remove(&entity_id);
         Ok(())
     }

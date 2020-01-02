@@ -8,7 +8,7 @@ use std::sync::Arc;
 extern crate downcast_rs;
 use downcast_rs::Downcast;
 
-use failure::{Fail, Error};
+use failure::{Error, Fail};
 
 use crate::snowflake::Snowflake;
 
@@ -18,18 +18,22 @@ downcast_rs::impl_downcast!(Component);
 pub type Result<T> = result::Result<T, Error>;
 
 pub trait ComponentStore<T: Component + 'static> {
-    fn load(&self, entity_id: Snowflake) -> Result<Option<T>>;
-    fn store(&self, entity_id: Snowflake, component: T) -> Result<()>;
-    fn exists(&self, entity_id: Snowflake) -> Result<bool>;
-    fn delete(&self, entity_id: Snowflake) -> Result<()>;
+    fn load(&self, entity_id: Snowflake, cm: &ComponentManager) -> Result<Option<T>>;
+    fn store(&self, entity_id: Snowflake, component: T, cm: &ComponentManager) -> Result<()>;
+    fn exists(&self, entity_id: Snowflake, cm: &ComponentManager) -> Result<bool>;
+    fn delete(&self, entity_id: Snowflake, cm: &ComponentManager) -> Result<()>;
 }
 
-type ComponentLoadFn =
-    Box<dyn Fn(Snowflake) -> Result<Option<Box<dyn Component + 'static>>> + Sync + Send>;
-type ComponentStoreFn =
-    Box<dyn Fn(Snowflake, Box<dyn Component + 'static>) -> Result<()> + Sync + Send>;
-type ComponentExistsFn = Box<dyn Fn(Snowflake) -> Result<bool> + Sync + Send>;
-type ComponentDeleteFn = Box<dyn Fn(Snowflake) -> Result<()> + Sync + Send>;
+type ComponentLoadFn = Box<
+    dyn Fn(Snowflake, &ComponentManager) -> Result<Option<Box<dyn Component + 'static>>>
+        + Sync
+        + Send,
+>;
+type ComponentStoreFn = Box<
+    dyn Fn(Snowflake, Box<dyn Component + 'static>, &ComponentManager) -> Result<()> + Sync + Send,
+>;
+type ComponentExistsFn = Box<dyn Fn(Snowflake, &ComponentManager) -> Result<bool> + Sync + Send>;
+type ComponentDeleteFn = Box<dyn Fn(Snowflake, &ComponentManager) -> Result<()> + Sync + Send>;
 
 pub struct ComponentTypeData {
     load: ComponentLoadFn,
@@ -57,8 +61,8 @@ impl ComponentTypeData {
         let s4 = s1.clone();
 
         ComponentTypeData {
-            load: Box::new(move |ent_id: Snowflake| {
-                let res = s1.load(ent_id)?;
+            load: Box::new(move |ent_id: Snowflake, cm: &ComponentManager| {
+                let res = s1.load(ent_id, cm)?;
                 if let Some(val) = res {
                     Ok(Some(Box::new(val)))
                 } else {
@@ -66,19 +70,23 @@ impl ComponentTypeData {
                 }
             }),
             store: Box::new(
-                move |ent_id: Snowflake, c: Box<dyn Component + 'static>| -> Result<()> {
+                move |ent_id: Snowflake,
+                      c: Box<dyn Component + 'static>,
+                      cm: &ComponentManager|
+                      -> Result<()> {
                     let res = c.downcast::<T>();
                     if let Ok(val) = res {
-                        s2.store(ent_id, *val)
+                        s2.store(ent_id, *val, cm)
                     } else {
                         Err(DowncastError {
                             component_name: any::type_name::<T>(),
-                        }.into())
+                        }
+                        .into())
                     }
                 },
             ),
-            exists: Box::new(move |ent_id: Snowflake| s3.exists(ent_id)),
-            delete: Box::new(move |ent_id: Snowflake| s4.delete(ent_id)),
+            exists: Box::new(move |ent_id: Snowflake, cm: &ComponentManager| s3.exists(ent_id, cm)),
+            delete: Box::new(move |ent_id: Snowflake, cm: &ComponentManager| s4.delete(ent_id, cm)),
         }
     }
 }
@@ -110,17 +118,18 @@ impl ComponentManager {
         component: T,
     ) -> Result<()> {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
-            (data.store)(entity_id, Box::new(component))
+            (data.store)(entity_id, Box::new(component), &self)
         } else {
             Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }.into())
+            }
+            .into())
         }
     }
 
     fn get_component<T: Component + 'static>(&self, entity_id: Snowflake) -> Result<Option<T>> {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
-            if let Some(comp) = (data.load)(entity_id)? {
+            if let Some(comp) = (data.load)(entity_id, &self)? {
                 // if this downcast fails, the loader was written wrong
                 let boxed = match comp.downcast::<T>() {
                     Ok(v) => v,
@@ -133,27 +142,30 @@ impl ComponentManager {
         } else {
             Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }.into())
+            }
+            .into())
         }
     }
 
     fn delete_component<T: Component + 'static>(&self, entity_id: Snowflake) -> Result<()> {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
-            (data.delete)(entity_id)
+            (data.delete)(entity_id, &self)
         } else {
             Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }.into())
+            }
+            .into())
         }
     }
 
     fn component_exists<T: Component + 'static>(&self, entity_id: Snowflake) -> Result<bool> {
         if let Some(data) = self.component_types.get(&TypeId::of::<T>()) {
-            (data.exists)(entity_id)
+            (data.exists)(entity_id, &self)
         } else {
             Err(TypeNotFoundError {
                 component_name: any::type_name::<T>().to_owned(),
-            }.into())
+            }
+            .into())
         }
     }
 }
