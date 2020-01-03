@@ -1,7 +1,7 @@
+#[macro_use]
 extern crate failure;
 extern crate failure_derive;
 
-//pub mod api;
 pub mod card;
 pub mod component;
 pub mod local_storage;

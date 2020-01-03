@@ -22,9 +22,11 @@ impl Resource {
     pub fn val(&self) -> i64 {
         self.val
     }
+
     pub fn min(&self) -> Option<i64> {
         self.min
     }
+
     pub fn max(&self) -> Option<i64> {
         self.max
     }
@@ -107,6 +109,12 @@ impl Resource {
 impl From<i64> for Resource {
     fn from(val: i64) -> Resource {
         Resource::new(val, None, None)
+    }
+}
+
+impl From<Resource> for i64 {
+    fn from(rsc: Resource) -> i64 {
+        rsc.val
     }
 }
 

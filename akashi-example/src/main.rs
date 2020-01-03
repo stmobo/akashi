@@ -3,8 +3,7 @@ use actix_web::{web, App, HttpServer};
 
 use std::sync::{Arc, Mutex};
 
-//use akashi::api;
-//use akashi::api::utils;
+//mod api;
 use akashi::local_storage::{LocalStoreBackend, SharedLocalStore};
 
 const BIND_URL: &str = "127.0.0.1:8088";

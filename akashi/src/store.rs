@@ -1,7 +1,7 @@
 use std::result;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
-use chashmap::CHashMap;
 use failure::{Error, Fail};
 
 use crate::snowflake::Snowflake;
@@ -77,7 +77,7 @@ where
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>,
+    refs: Mutex<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
 }
 
 impl<T, U> Store<T, U>
@@ -87,12 +87,13 @@ where
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
-            refs: CHashMap::new(),
+            refs: Mutex::new(HashMap::new()),
         }
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let r = self.refs.get(&id).and_then(|wk| wk.upgrade());
+        let mut refs = self.refs.lock().map_err(|_e| format_err!("refs lock poisoned"))?;
+        let r = refs.get(&id).and_then(|wk| wk.upgrade());
 
         if let Some(locked_ref) = r {
             Ok(locked_ref)
@@ -104,7 +105,7 @@ where
             }
 
             let r = Arc::new(Mutex::new(handle));
-            self.refs.insert(id, Arc::downgrade(&r));
+            refs.insert(id, Arc::downgrade(&r));
             Ok(r)
         }
     }
