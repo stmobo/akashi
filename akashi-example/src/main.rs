@@ -6,13 +6,13 @@ use actix_web::{web, App, HttpServer};
 
 use std::sync::{Arc, Mutex};
 
-mod utils;
-mod player;
 mod inventory;
 mod models;
+mod player;
+mod utils;
 
-use akashi::SnowflakeGenerator;
 use akashi::local_storage::SharedLocalStore;
+use akashi::SnowflakeGenerator;
 
 const BIND_URL: &str = "127.0.0.1:8088";
 
@@ -41,14 +41,14 @@ async fn main() -> std::io::Result<()> {
             web::scope("/players"),
             shared_store.clone(),
             snowflake_gen.clone(),
-            cm.clone()
+            cm.clone(),
         );
 
         let inv_scope = inventory::bind_routes(
             web::scope("/inventories"),
             shared_store.clone(),
             snowflake_gen.clone(),
-            cm.clone()
+            cm.clone(),
         );
 
         App::new().service(players_scope).service(inv_scope)

@@ -4,12 +4,14 @@ use actix_web::{web, HttpResponse, Scope};
 use failure::Error;
 use serde::Deserialize;
 
-use akashi::{Player, Snowflake, ComponentManager, ComponentsAttached};
 use akashi::store::{SharedStore, Store, StoreBackend};
+use akashi::{ComponentManager, ComponentsAttached, Player, Snowflake};
 
-use crate::utils;
-use crate::utils::{ObjectNotFoundError, BadTransactionError, Pagination, SnowflakeGeneratorState, player_not_found};
 use crate::models::{PlayerModel, ResourceA};
+use crate::utils;
+use crate::utils::{
+    player_not_found, BadTransactionError, ObjectNotFoundError, Pagination, SnowflakeGeneratorState,
+};
 
 // GET /players
 async fn list_players<T, U>(
@@ -35,7 +37,8 @@ where
             .collect();
         Ok(vals)
     })
-    .await.map_err(utils::convert_blocking_err)?;
+    .await
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(players))
 }
@@ -54,14 +57,17 @@ where
     let r: PlayerModel = web::block(move || -> Result<PlayerModel, Error> {
         let store: &Store<Player, U> = shared_store.get_store();
         let wrapper = store.load(id)?;
-        let handle = wrapper.lock().map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("failed to lock wrapper"))?;
 
         match handle.get() {
             None => Err(player_not_found(id)),
             Some(r) => PlayerModel::new(r),
         }
     })
-    .await.map_err(utils::convert_blocking_err)?;
+    .await
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(r))
 }
@@ -102,7 +108,9 @@ where
     web::block(move || -> Result<(), Error> {
         let store: &Store<Player, U> = shared_store.get_store();
         let wrapper = store.load(id)?;
-        let mut handle = wrapper.lock().map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let mut handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("failed to lock wrapper"))?;
 
         if !handle.exists() {
             Err(player_not_found(id))
@@ -111,7 +119,8 @@ where
             Ok(())
         }
     })
-    .await.map_err(utils::convert_blocking_err)?;
+    .await
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::NoContent().finish())
 }
@@ -130,14 +139,18 @@ where
         let new_pl: Player;
 
         {
-            let mut snowflake_gen = sg.lock().map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
+            let mut snowflake_gen = sg
+                .lock()
+                .map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
             new_pl = Player::empty(&mut snowflake_gen, cm.into_inner());
         }
 
         let store: &Store<Player, U> = shared_store.get_store();
 
         let wrapper = store.load(new_pl.id())?;
-        let mut handle = wrapper.lock().map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let mut handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("failed to lock wrapper"))?;
 
         handle.replace(new_pl);
         handle.store()?;
@@ -146,12 +159,18 @@ where
         let model = PlayerModel::new(handle.get().unwrap())?;
         Ok(model)
     })
-    .await.map_err(utils::convert_blocking_err)?;
+    .await
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(pl))
 }
 
-pub fn bind_routes<T, U>(scope: Scope, store: web::Data<T>, sg: SnowflakeGeneratorState, cm: web::Data<ComponentManager>) -> Scope
+pub fn bind_routes<T, U>(
+    scope: Scope,
+    store: web::Data<T>,
+    sg: SnowflakeGeneratorState,
+    cm: web::Data<ComponentManager>,
+) -> Scope
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
@@ -169,9 +188,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use actix_web::http;
     use futures::executor::block_on;
+    use std::sync::Arc;
 
     use crate::utils;
     use crate::utils::{get_body_json, get_body_str, snowflake_generator, store};
@@ -232,7 +251,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let players = shared_store.players();
-        let pl = Player::empty(&mut snowflake_gen, Arc::new(utils::new_component_manager(&shared_store)));
+        let pl = Player::empty(
+            &mut snowflake_gen,
+            Arc::new(utils::new_component_manager(&shared_store)),
+        );
         let id = pl.id();
         players.store(id, pl.clone()).unwrap();
 
@@ -257,7 +279,10 @@ mod tests {
     fn test_player_transaction_add() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, Arc::new(utils::new_component_manager(&shared_store)));
+        let pl = Player::empty(
+            &mut snowflake_gen,
+            Arc::new(utils::new_component_manager(&shared_store)),
+        );
 
         let players = shared_store.players();
         let id = pl.id();
@@ -288,7 +313,10 @@ mod tests {
     fn test_player_transaction_sub() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, Arc::new(utils::new_component_manager(&shared_store)));
+        let pl = Player::empty(
+            &mut snowflake_gen,
+            Arc::new(utils::new_component_manager(&shared_store)),
+        );
 
         pl.set_component::<ResourceA>(50.into()).unwrap();
 
@@ -321,10 +349,13 @@ mod tests {
     fn test_player_transaction_sub_validate() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, Arc::new(utils::new_component_manager(&shared_store)));
+        let pl = Player::empty(
+            &mut snowflake_gen,
+            Arc::new(utils::new_component_manager(&shared_store)),
+        );
 
         pl.set_component::<ResourceA>(50.into()).unwrap();
-        let expected_player = PlayerModel::new(&pl).unwrap(); 
+        let expected_player = PlayerModel::new(&pl).unwrap();
 
         let players = shared_store.players();
         let id = pl.id();
@@ -340,7 +371,7 @@ mod tests {
         {
             let wrapper = players.load(id).unwrap();
             let handle = wrapper.lock().unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, expected_player);
             assert_eq!(stored_pl.resource_a, 50);
@@ -351,7 +382,10 @@ mod tests {
     fn test_player_transaction_set() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, Arc::new(utils::new_component_manager(&shared_store)));
+        let pl = Player::empty(
+            &mut snowflake_gen,
+            Arc::new(utils::new_component_manager(&shared_store)),
+        );
 
         let players = shared_store.players();
         let id = pl.id();
@@ -370,7 +404,7 @@ mod tests {
             let wrapper = players.load(id).unwrap();
             let handle = wrapper.lock().unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
 
             assert_eq!(resp_pl, stored_pl);
@@ -409,7 +443,7 @@ mod tests {
             let wrapper = players.load(id_2).unwrap();
             let handle = wrapper.lock().unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
 
             assert_eq!(resp_pl, stored_pl);
@@ -419,7 +453,7 @@ mod tests {
         {
             let wrapper = players.load(id_1).unwrap();
             let handle = wrapper.lock().unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl.resource_a, 60);
         }
@@ -456,7 +490,7 @@ mod tests {
         {
             let wrapper = players.load(id_1).unwrap();
             let handle = wrapper.lock().unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, model_1);
         }
@@ -464,7 +498,7 @@ mod tests {
         {
             let wrapper = players.load(id_2).unwrap();
             let handle = wrapper.lock().unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap(); 
+            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, model_2);
         }

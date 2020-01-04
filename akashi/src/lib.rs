@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate failure;
-extern crate failure_derive;
 extern crate chashmap;
+extern crate failure_derive;
 
 pub mod card;
 pub mod component;
@@ -11,9 +11,9 @@ pub mod resources;
 pub mod snowflake;
 pub mod store;
 
-pub use snowflake::{Snowflake, SnowflakeGenerator};
-pub use player::Player;
 pub use card::{Card, Inventory};
-pub use component::{Component, ComponentsAttached, ComponentStore, ComponentManager};
-pub use store::{Store, StoreHandle, StoreBackend};
+pub use component::{Component, ComponentManager, ComponentStore, ComponentsAttached};
+pub use player::Player;
 pub use resources::Resource;
+pub use snowflake::{Snowflake, SnowflakeGenerator};
+pub use store::{Store, StoreBackend, StoreHandle};

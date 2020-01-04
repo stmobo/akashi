@@ -3,12 +3,14 @@ use serde::Deserialize;
 
 use actix_web::{web, HttpResponse, Scope};
 
-use akashi::{Player, Card, Inventory, Snowflake, ComponentManager, ComponentStore, ComponentsAttached};
 use akashi::store::{SharedStore, Store, StoreBackend};
+use akashi::{
+    Card, ComponentManager, ComponentStore, ComponentsAttached, Inventory, Player, Snowflake,
+};
 
+use crate::models::{CardModel, CardName, CardType, CardValue};
 use crate::utils;
-use crate::utils::{ObjectNotFoundError, BadTransactionError, Pagination, SnowflakeGeneratorState};
-use crate::models::{CardModel, CardName, CardValue, CardType};
+use crate::utils::{BadTransactionError, ObjectNotFoundError, Pagination, SnowflakeGeneratorState};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -26,9 +28,11 @@ where
     let val = web::block(move || -> Result<Vec<CardModel>> {
         let store: &Store<Player, U> = shared_store.get_store();
         let wrapper = store.load(id)?;
-        let handle = wrapper.lock().map_err(|_e| format_err!("wrapper lock poisoned"))?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
 
-        let pl_ref: &Player = handle.get().ok_or_else(|| utils::player_not_found(id))?; 
+        let pl_ref: &Player = handle.get().ok_or_else(|| utils::player_not_found(id))?;
         let inv: Option<Inventory> = pl_ref.get_component()?;
 
         Ok(match inv {
@@ -40,13 +44,13 @@ where
                 for card in v.iter() {
                     model.push(CardModel::new(card)?);
                 }
-                
+
                 model
             }
         })
     })
     .await
-    .map_err(utils::convert_blocking_err)?; 
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(val))
 }
@@ -71,7 +75,7 @@ async fn add_to_inventory<T, U>(
     opts: web::Json<InventoryAddOptions>,
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager>
+    cm: web::Data<ComponentManager>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
@@ -84,10 +88,14 @@ where
     let res = web::block(move || -> Result<Vec<CardModel>> {
         let players: &Store<Player, U> = shared_store.get_store();
         let wrapper = players.load(pl_id)?;
-        let handle = wrapper.lock().map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("player handle lock poisoned"))?;
         let player = handle.get().ok_or_else(|| utils::player_not_found(pl_id))?;
 
-        let mut inv: Inventory = player.get_component()?.unwrap_or_else(|| Inventory::empty(pl_id));
+        let mut inv: Inventory = player
+            .get_component()?
+            .unwrap_or_else(|| Inventory::empty(pl_id));
 
         let new_card: Card = match opts {
             InventoryAddOptions::Existing(c) => c.as_card(cm.clone())?,
@@ -95,7 +103,9 @@ where
                 let c: Card;
 
                 {
-                    let mut snowflake_gen = sg.lock().map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
+                    let mut snowflake_gen = sg
+                        .lock()
+                        .map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
                     c = Card::generate(&mut snowflake_gen, cm.clone());
                 }
 
@@ -110,7 +120,7 @@ where
         };
 
         let mut model: Vec<CardModel> = Vec::new();
-        model.reserve(inv.len()+1);
+        model.reserve(inv.len() + 1);
         for card in inv.iter() {
             model.push(CardModel::new(card)?);
         }
@@ -123,7 +133,7 @@ where
         Ok(model)
     })
     .await
-    .map_err(utils::convert_blocking_err)?; 
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(res))
 }
@@ -143,16 +153,22 @@ where
     let res: CardModel = web::block(move || -> Result<CardModel> {
         let players: &Store<Player, U> = shared_store.get_store();
         let wrapper = players.load(pl_id)?;
-        let handle = wrapper.lock().map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("player handle lock poisoned"))?;
         let player = handle.get().ok_or_else(|| utils::player_not_found(pl_id))?;
 
-        let inv: Inventory = player.get_component()?.ok_or_else(|| utils::card_not_found(card_id))?;
-        let card: &Card = inv.get(card_id).ok_or_else(|| utils::card_not_found(card_id))?;
+        let inv: Inventory = player
+            .get_component()?
+            .ok_or_else(|| utils::card_not_found(card_id))?;
+        let card: &Card = inv
+            .get(card_id)
+            .ok_or_else(|| utils::card_not_found(card_id))?;
 
         CardModel::new(card)
     })
     .await
-    .map_err(utils::convert_blocking_err)?; 
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(res))
 }
@@ -172,17 +188,23 @@ where
     let res: CardModel = web::block(move || -> Result<CardModel> {
         let players: &Store<Player, U> = shared_store.get_store();
         let wrapper = players.load(pl_id)?;
-        let handle = wrapper.lock().map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("player handle lock poisoned"))?;
         let player = handle.get().ok_or_else(|| utils::player_not_found(pl_id))?;
 
-        let mut inv: Inventory = player.get_component()?.ok_or_else(|| utils::card_not_found(card_id))?;
-        let card: Card = inv.remove(card_id).ok_or_else(|| utils::card_not_found(card_id))?;
+        let mut inv: Inventory = player
+            .get_component()?
+            .ok_or_else(|| utils::card_not_found(card_id))?;
+        let card: Card = inv
+            .remove(card_id)
+            .ok_or_else(|| utils::card_not_found(card_id))?;
 
         player.set_component(inv)?;
         CardModel::new(&card)
     })
     .await
-    .map_err(utils::convert_blocking_err)?; 
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::Ok().json(res))
 }
@@ -211,17 +233,31 @@ where
         let players: &Store<Player, U> = shared_store.get_store();
 
         let src_wrapper = players.load(src_player_id)?;
-        let src_handle = src_wrapper.lock().map_err(|_e| format_err!("player handle lock poisoned"))?;
-        let src_player = src_handle.get().ok_or_else(|| utils::player_not_found(src_player_id))?;
+        let src_handle = src_wrapper
+            .lock()
+            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let src_player = src_handle
+            .get()
+            .ok_or_else(|| utils::player_not_found(src_player_id))?;
 
-        let mut src_inv: Inventory = src_player.get_component()?.ok_or_else(|| utils::card_not_found(card_id))?;
-        let card: Card = src_inv.remove(card_id).ok_or_else(|| utils::card_not_found(card_id))?;
+        let mut src_inv: Inventory = src_player
+            .get_component()?
+            .ok_or_else(|| utils::card_not_found(card_id))?;
+        let card: Card = src_inv
+            .remove(card_id)
+            .ok_or_else(|| utils::card_not_found(card_id))?;
 
         let dest_wrapper = players.load(dest_player_id)?;
-        let dest_handle = dest_wrapper.lock().map_err(|_e| format_err!("player handle lock poisoned"))?;
-        let dest_player = dest_handle.get().ok_or_else(|| utils::player_not_found(dest_player_id))?;
+        let dest_handle = dest_wrapper
+            .lock()
+            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let dest_player = dest_handle
+            .get()
+            .ok_or_else(|| utils::player_not_found(dest_player_id))?;
 
-        let mut dest_inv: Inventory = dest_player.get_component()?.unwrap_or_else(|| Inventory::empty(dest_player_id));
+        let mut dest_inv: Inventory = dest_player
+            .get_component()?
+            .unwrap_or_else(|| Inventory::empty(dest_player_id));
         dest_inv.insert(card);
 
         dest_player.set_component(dest_inv)?;
@@ -230,12 +266,17 @@ where
         Ok(())
     })
     .await
-    .map_err(utils::convert_blocking_err)?; 
+    .map_err(utils::convert_blocking_err)?;
 
     Ok(HttpResponse::NoContent().finish())
 }
 
-pub fn bind_routes<T, U>(scope: Scope, store: web::Data<T>, sg: SnowflakeGeneratorState, cm: web::Data<ComponentManager>) -> Scope
+pub fn bind_routes<T, U>(
+    scope: Scope,
+    store: web::Data<T>,
+    sg: SnowflakeGeneratorState,
+    cm: web::Data<ComponentManager>,
+) -> Scope
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + StoreBackend<Card> + Send + Sync + 'static,
@@ -270,7 +311,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
-        let mut inv: Inventory = pl.get_component().unwrap().unwrap_or_else(|| Inventory::empty(pl.id()));
+        let mut inv: Inventory = pl
+            .get_component()
+            .unwrap()
+            .unwrap_or_else(|| Inventory::empty(pl.id()));
 
         let card = Card::generate(&mut snowflake_gen, cm.clone());
         card.set_component(CardName::new("foo".to_owned())).unwrap();
@@ -313,15 +357,19 @@ mod tests {
         let sg = snowflake_generator(0, 0);
         let inv: Inventory;
 
-        let (pl_id, pl) = utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), cm.clone().into_inner());
+        let (pl_id, pl) = utils::create_new_player(
+            &shared_store,
+            &mut sg.lock().unwrap(),
+            cm.clone().into_inner(),
+        );
         let card_store = shared_store.cards();
 
         let resp = block_on(add_to_inventory(
             web::Path::from((pl_id,)),
-            web::Json(InventoryAddOptions::New(NewCardOptions{
+            web::Json(InventoryAddOptions::New(NewCardOptions {
                 card_type: CardType::TypeA,
                 name: "bar".to_owned(),
-                value: 13.0
+                value: 13.0,
             })),
             shared_store.clone(),
             sg,
@@ -334,15 +382,18 @@ mod tests {
         let body: Vec<CardModel> = get_body_json(&resp);
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
-        let expected: Vec<CardModel> = inv.iter().map(|card| CardModel::new(card).unwrap()).collect();
+        let expected: Vec<CardModel> = inv
+            .iter()
+            .map(|card| CardModel::new(card).unwrap())
+            .collect();
 
         assert_eq!(body, expected);
         assert_eq!(inv.len(), 1);
 
         let card = &expected[0];
         assert_eq!(card.card_type, CardType::TypeA);
-        assert_eq!(card.name, "bar"); 
-        assert_eq!(card.value, 13.0); 
+        assert_eq!(card.name, "bar");
+        assert_eq!(card.value, 13.0);
 
         let wrapper = card_store.load(card.id).unwrap();
         let handle = wrapper.lock().unwrap();
@@ -357,7 +408,11 @@ mod tests {
         let cm = web::Data::new(utils::new_component_manager(&shared_store));
         let sg = snowflake_generator(0, 0);
 
-        let (pl_id, pl) = utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), cm.clone().into_inner());
+        let (pl_id, pl) = utils::create_new_player(
+            &shared_store,
+            &mut sg.lock().unwrap(),
+            cm.clone().into_inner(),
+        );
 
         let model = CardModel {
             id: sg.lock().unwrap().generate(),
@@ -379,7 +434,10 @@ mod tests {
 
         let body: Vec<CardModel> = get_body_json(&resp);
         let inv: Inventory = pl.get_component().unwrap().unwrap();
-        let stored_inv: Vec<CardModel> = inv.iter().map(|card| CardModel::new(card).unwrap()).collect();
+        let stored_inv: Vec<CardModel> = inv
+            .iter()
+            .map(|card| CardModel::new(card).unwrap())
+            .collect();
 
         assert_eq!(body, stored_inv);
         assert_eq!(stored_inv.len(), 1);
@@ -396,7 +454,8 @@ mod tests {
         let mut inv = Inventory::empty(pl_id);
 
         let card = Card::generate(&mut snowflake_gen, cm.clone());
-        card.set_component(CardName::new("foobar".to_owned())).unwrap();
+        card.set_component(CardName::new("foobar".to_owned()))
+            .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
         card.set_component(CardType::TypeC).unwrap();
         let expected = CardModel::new(&card).unwrap();
@@ -418,7 +477,7 @@ mod tests {
         let shared_store = store();
         let cm = Arc::new(utils::new_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        
+
         let (pl_id, pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
         let inv = Inventory::empty(pl_id);
         pl.set_component(inv).unwrap();
@@ -429,7 +488,10 @@ mod tests {
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
 
-        let resp = block_on(get_card(web::Path::from((pl_id, snowflake_gen.generate())), shared_store));
+        let resp = block_on(get_card(
+            web::Path::from((pl_id, snowflake_gen.generate())),
+            shared_store,
+        ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
 
@@ -443,7 +505,8 @@ mod tests {
         let mut inv = Inventory::empty(pl_id);
 
         let card = Card::generate(&mut snowflake_gen, cm.clone());
-        card.set_component(CardName::new("foobar".to_owned())).unwrap();
+        card.set_component(CardName::new("foobar".to_owned()))
+            .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
         card.set_component(CardType::TypeC).unwrap();
         let expected = CardModel::new(&card).unwrap();
@@ -498,20 +561,23 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let card = Card::generate(&mut snowflake_gen, cm.clone());
-        card.set_component(CardName::new("foobar".to_owned())).unwrap();
+        card.set_component(CardName::new("foobar".to_owned()))
+            .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
         card.set_component(CardType::TypeC).unwrap();
         let expected = CardModel::new(&card).unwrap();
         let card_id = card.id();
 
-        let (src_pl_id, src_pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
+        let (src_pl_id, src_pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
         let mut src_inv = Inventory::empty(src_pl_id);
         src_inv.insert(card);
 
         assert_eq!(src_inv.len(), 1);
         src_pl.set_component(src_inv).unwrap();
 
-        let (dest_pl_id, dest_pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
+        let (dest_pl_id, dest_pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
 
         let query_str = format!("to={}", dest_pl_id);
         let query = web::Query::<CardMoveOptions>::from_query(query_str.as_str()).unwrap();
@@ -544,13 +610,15 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let card = Card::generate(&mut snowflake_gen, cm.clone());
-        card.set_component(CardName::new("foobar".to_owned())).unwrap();
+        card.set_component(CardName::new("foobar".to_owned()))
+            .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
         card.set_component(CardType::TypeC).unwrap();
         let expected = CardModel::new(&card).unwrap();
         let card_id = card.id();
 
-        let (src_pl_id, src_pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
+        let (src_pl_id, src_pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, cm.clone());
         let mut src_inv = Inventory::empty(src_pl_id);
         src_inv.insert(card);
         assert_eq!(src_inv.len(), 1);

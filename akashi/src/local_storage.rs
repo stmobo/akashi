@@ -137,7 +137,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
     fn load(&self, id: Snowflake) -> Result<Option<Card>> {
         let cards = self.cards.read().unwrap();
         match cards.get(&id) {
-            None => Ok(None), 
+            None => Ok(None),
             Some(card) => Ok(Some(card.clone())),
         }
     }
@@ -173,7 +173,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
 }
 
 pub struct LocalInventoryStore {
-    backend: Arc<LocalStoreBackend>
+    backend: Arc<LocalStoreBackend>,
 }
 
 impl LocalInventoryStore {

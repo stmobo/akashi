@@ -1,9 +1,11 @@
 // Data models used in the API exposed by this example game.
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
 use failure::Error;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-use akashi::{Resource, Player, Card, Inventory, Component, ComponentManager, ComponentsAttached, Snowflake};
+use akashi::{
+    Card, Component, ComponentManager, ComponentsAttached, Inventory, Player, Resource, Snowflake,
+};
 
 #[derive(Debug, Clone)]
 pub struct ResourceA(Resource);
@@ -96,7 +98,7 @@ impl CardModel {
             id: card.id(),
             name: name.map_or_else(|| String::from(""), |r| r.0),
             value: value.map_or(1.0, |r| r.0),
-            card_type
+            card_type,
         })
     }
 
@@ -112,4 +114,3 @@ impl CardModel {
         Ok(card)
     }
 }
-

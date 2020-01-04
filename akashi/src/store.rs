@@ -1,9 +1,9 @@
+use std::cell::RefCell;
 use std::result;
 use std::sync::{Arc, Mutex, Weak};
-use std::cell::RefCell;
 
-use failure::{Error, Fail, err_msg};
 use chashmap::CHashMap;
+use failure::{err_msg, Error, Fail};
 
 use crate::snowflake::Snowflake;
 
@@ -88,14 +88,13 @@ where
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
-            refs: CHashMap::new(), 
+            refs: CHashMap::new(),
         }
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> = RefCell::new(
-            Err(err_msg("unknown load error"))
-        );
+        let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
+            RefCell::new(Err(err_msg("unknown load error")));
 
         self.refs.alter(id, |val| {
             // If a previously-left weak pointer is still around, use that.
@@ -107,20 +106,21 @@ where
                     return Some(weak);
                 }
             }
-            
+
             // Otherwise, try to load handle data from the backend.
             match self.backend.load(id) {
                 Ok(data) => {
                     // Okay, got good handle data.
                     // Make a new handle, then make pointers to return and
-                    // to store. 
-                    let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, data);
+                    // to store.
+                    let handle: StoreHandle<T, U> =
+                        StoreHandle::new(self.backend.clone(), id, data);
                     let ret = Arc::new(Mutex::new(handle));
                     let weak = Arc::downgrade(&ret);
 
                     let _e = cell.replace(Ok(ret));
                     Some(weak)
-                },
+                }
                 Err(e) => {
                     // Error loading handle data.
                     // Just store an error message in the Cell and keep

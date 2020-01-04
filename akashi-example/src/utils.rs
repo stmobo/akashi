@@ -1,14 +1,14 @@
+use actix_web::error::BlockingError;
 use actix_web::http::{header, StatusCode};
 use actix_web::{error, web, HttpResponse};
-use actix_web::error::BlockingError;
-use failure::{Fail, Error};
+use failure::{Error, Fail};
 use serde::Deserialize;
 
 use std::sync::Mutex;
 
-use akashi::{Snowflake, SnowflakeGenerator, ComponentManager};
-use akashi::local_storage::{SharedLocalStore, LocalInventoryStore, LocalComponentStorage};
-use crate::models::{ResourceA, CardName, CardValue, CardType};
+use crate::models::{CardName, CardType, CardValue, ResourceA};
+use akashi::local_storage::{LocalComponentStorage, LocalInventoryStore, SharedLocalStore};
+use akashi::{ComponentManager, Snowflake, SnowflakeGenerator};
 
 #[cfg(test)]
 use std::any::type_name;
@@ -45,12 +45,16 @@ pub fn store() -> web::Data<SharedLocalStore> {
 }
 
 #[cfg(test)]
-pub fn create_new_player(shared_store: &SharedLocalStore, snowflake_gen: &mut SnowflakeGenerator, cm: Arc<ComponentManager>) -> (Snowflake, Player) {
+pub fn create_new_player(
+    shared_store: &SharedLocalStore,
+    snowflake_gen: &mut SnowflakeGenerator,
+    cm: Arc<ComponentManager>,
+) -> (Snowflake, Player) {
     let players = shared_store.players();
     let pl = Player::empty(snowflake_gen, cm);
     let pl_id = pl.id();
     players.store(pl_id, pl.clone()).unwrap();
-    
+
     (pl_id, pl)
 }
 
@@ -59,7 +63,7 @@ pub fn convert_blocking_err(e: BlockingError<Error>) -> Error {
         BlockingError::Error(inside) => inside,
         BlockingError::Canceled => ThreadCancelledError.into(),
     }
-} 
+}
 
 #[derive(Deserialize)]
 #[serde(default)]
@@ -84,7 +88,7 @@ impl Default for Pagination {
 #[fail(display = "Could not find {} with ID {}", obj_type, id)]
 pub struct ObjectNotFoundError {
     obj_type: &'static str,
-    id: Snowflake
+    id: Snowflake,
 }
 
 impl ObjectNotFoundError {
@@ -153,7 +157,6 @@ pub fn expect_error<E: Fail>(resp: Result<HttpResponse, Error>) -> E {
     let err = resp.expect_err("expected error, got valid response");
     match err.downcast() {
         Ok(v) => v,
-        Err(e) => panic!("expected {}, got {:?}", type_name::<E>(), e)
-    } 
+        Err(e) => panic!("expected {}, got {:?}", type_name::<E>(), e),
+    }
 }
-
