@@ -4,13 +4,11 @@ use serde::Deserialize;
 use actix_web::{web, HttpResponse, Scope};
 
 use akashi::store::{SharedStore, Store, StoreBackend};
-use akashi::{
-    Card, ComponentManager, ComponentStore, ComponentsAttached, Inventory, Player, Snowflake,
-};
+use akashi::{Card, ComponentManager, ComponentsAttached, Inventory, Player, Snowflake};
 
 use crate::models::{CardModel, CardName, CardType, CardValue};
 use crate::utils;
-use crate::utils::{BadTransactionError, ObjectNotFoundError, Pagination, SnowflakeGeneratorState};
+use crate::utils::{ObjectNotFoundError, SnowflakeGeneratorState};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -355,7 +353,6 @@ mod tests {
         let shared_store = store();
         let cm = web::Data::new(utils::new_component_manager(&shared_store));
         let sg = snowflake_generator(0, 0);
-        let inv: Inventory;
 
         let (pl_id, pl) = utils::create_new_player(
             &shared_store,

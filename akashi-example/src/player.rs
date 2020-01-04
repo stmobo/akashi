@@ -75,23 +75,77 @@ where
 #[derive(Deserialize)]
 #[serde(tag = "op", content = "d")]
 enum Transaction {
-    Add(u64),
-    Sub(u64),
-    Set(u64),
-    TransferFrom((Snowflake, u64)),
+    Add(i64),
+    Sub(i64),
+    Set(i64),
+    TransferFrom((Snowflake, i64)),
 }
 
-// POST /players/{playerid}/resources
-async fn player_resource_transaction<T, U>(
+// POST /players/{playerid}/resource_a
+async fn resource_a_transaction<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-    transactions: web::Json<Vec<Transaction>>,
+    transaction: web::Json<Transaction>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + Send + Sync + 'static,
 {
-    Ok(HttpResponse::NotImplemented().finish())
+    let player_id = path.0;
+    let transaction = transaction.into_inner();
+
+    let res = web::block(move || -> Result<PlayerModel, Error> {
+        let store: &Store<Player, U> = shared_store.get_store();
+        let wrapper = store.load(player_id)?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let pl = handle.get().ok_or_else(|| player_not_found(player_id))?;
+
+        let mut rsc_a: ResourceA = pl.get_component()?.unwrap_or_default();
+        match transaction {
+            Transaction::Add(val) => rsc_a
+                .0
+                .checked_add(val.into())
+                .map_err(|e| BadTransactionError::new(e.to_string()))?,
+            Transaction::Sub(val) => rsc_a
+                .0
+                .checked_sub(val.into())
+                .map_err(|e| BadTransactionError::new(e.to_string()))?,
+            Transaction::Set(val) => rsc_a
+                .0
+                .checked_set(val.into())
+                .map_err(|e| BadTransactionError::new(e.to_string()))?,
+            Transaction::TransferFrom((from_pl_id, val)) => {
+                let other_wrapper = store.load(from_pl_id)?;
+                let other_handle = other_wrapper
+                    .lock()
+                    .map_err(|_e| format_err!("failed to lock wrapper"))?;
+                let other_pl = other_handle
+                    .get()
+                    .ok_or_else(|| player_not_found(from_pl_id))?;
+
+                let mut other_rsc_a: ResourceA = other_pl.get_component()?.unwrap_or_default();
+                other_rsc_a
+                    .0
+                    .checked_sub(val.into())
+                    .map_err(|e| BadTransactionError::new(e.to_string()))?;
+                rsc_a
+                    .0
+                    .checked_add(val.into())
+                    .map_err(|e| BadTransactionError::new(e.to_string()))?;
+
+                other_pl.set_component(other_rsc_a)?;
+            }
+        };
+
+        pl.set_component(rsc_a)?;
+        PlayerModel::new(pl)
+    })
+    .await
+    .map_err(utils::convert_blocking_err)?;
+
+    Ok(HttpResponse::Ok().json(res))
 }
 
 // DELETE /players/{playerid}
@@ -288,10 +342,10 @@ mod tests {
         let id = pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::Add(10)]),
+            web::Json(Transaction::Add(10)),
         ))
         .unwrap();
 
@@ -324,10 +378,10 @@ mod tests {
         let id = pl.id();
         players.store(id, pl.clone()).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::Sub(25)]),
+            web::Json(Transaction::Sub(25)),
         ))
         .unwrap();
 
@@ -361,10 +415,10 @@ mod tests {
         let id = pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::Sub(60)]),
+            web::Json(Transaction::Sub(60)),
         ));
         let _e: BadTransactionError = utils::expect_error(resp);
 
@@ -391,10 +445,10 @@ mod tests {
         let id = pl.id();
         players.store(id, pl).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::Set(100)]),
+            web::Json(Transaction::Set(100)),
         ))
         .unwrap();
 
@@ -430,10 +484,10 @@ mod tests {
         players.store(id_1, pl_1.clone()).unwrap();
         players.store(id_2, pl_2.clone()).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::TransferFrom((id_1, 50))]),
+            web::Json(Transaction::TransferFrom((id_1, 50))),
         ))
         .unwrap();
 
@@ -480,10 +534,10 @@ mod tests {
         players.store(id_1, pl_1.clone()).unwrap();
         players.store(id_2, pl_2.clone()).unwrap();
 
-        let resp = block_on(player_resource_transaction(
+        let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
             shared_store.clone(),
-            web::Json(vec![Transaction::TransferFrom((id_1, 60))]),
+            web::Json(Transaction::TransferFrom((id_1, 60))),
         ));
         let _e: BadTransactionError = utils::expect_error(resp);
 

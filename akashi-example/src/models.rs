@@ -8,13 +8,19 @@ use akashi::{
 };
 
 #[derive(Debug, Clone)]
-pub struct ResourceA(Resource);
+pub struct ResourceA(pub Resource);
 
 impl Component for ResourceA {}
 
 impl From<i64> for ResourceA {
     fn from(val: i64) -> ResourceA {
-        ResourceA(val.into())
+        ResourceA(Resource::new(val, Some(0), None))
+    }
+}
+
+impl Default for ResourceA {
+    fn default() -> ResourceA {
+        ResourceA(Resource::new(0, Some(0), None))
     }
 }
 

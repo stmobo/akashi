@@ -8,7 +8,7 @@ use crate::card::{Card, Inventory};
 use crate::component::{Component, ComponentManager, ComponentStore};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
-use crate::store::{NotFoundError, SharedStore, Store, StoreBackend};
+use crate::store::{SharedStore, Store, StoreBackend};
 
 type Result<T> = result::Result<T, Error>;
 

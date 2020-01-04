@@ -26,6 +26,41 @@ impl Resource {
         self.max
     }
 
+    pub fn checked_set(&mut self, rhs: Self) -> Result<(), InvalidSet> {
+        let v = rhs.val;
+        if let Some(max) = self.max {
+            if v > max {
+                return Err(InvalidSet(v, self.min, self.max));
+            }
+        }
+
+        if let Some(min) = self.min {
+            if v < min {
+                return Err(InvalidSet(v, self.min, self.max));
+            }
+        }
+
+        self.val = v;
+        Ok(())
+    }
+
+    pub fn capped_set(&mut self, rhs: Self) {
+        let mut v = rhs.val;
+        if let Some(min) = self.min {
+            if v < min {
+                v = min;
+            }
+        }
+
+        if let Some(max) = self.max {
+            if v > max {
+                v = max;
+            }
+        }
+
+        self.val = v;
+    }
+
     pub fn checked_add(&mut self, rhs: Self) -> Result<(), InvalidAddition> {
         let v = self.val + rhs.val;
         if let Some(max) = self.max {
@@ -128,6 +163,13 @@ pub struct InvalidSubtraction(i64, i64, i64);
     _0, _1, _2
 )]
 pub struct InvalidAddition(i64, i64, i64);
+
+#[derive(Fail, Debug)]
+#[fail(
+    display = "Invalid resource set operation (value of {} is outside of range {:?} to {:?})",
+    _0, _1, _2
+)]
+pub struct InvalidSet(i64, Option<i64>, Option<i64>);
 
 #[derive(Fail, Debug)]
 #[fail(
