@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate failure;
 extern crate failure_derive;
+extern crate chashmap;
 
 pub mod card;
 pub mod component;

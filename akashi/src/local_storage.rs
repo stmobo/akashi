@@ -87,12 +87,12 @@ impl StoreBackend<Player> for LocalStoreBackend {
         Ok(players.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Player> {
+    fn load(&self, id: Snowflake) -> Result<Option<Player>> {
         let players = self.players.read().unwrap();
         if let Some(s) = players.get(&id) {
-            Ok(s.clone())
+            Ok(Some(s.clone()))
         } else {
-            Err(NotFoundError::new(id).into())
+            Ok(None)
         }
     }
 
@@ -134,11 +134,11 @@ impl StoreBackend<Card> for LocalStoreBackend {
         Ok(cards.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Card> {
+    fn load(&self, id: Snowflake) -> Result<Option<Card>> {
         let cards = self.cards.read().unwrap();
         match cards.get(&id) {
-            None => Err(NotFoundError::new(id).into()),
-            Some(card) => Ok(card.clone()),
+            None => Ok(None), 
+            Some(card) => Ok(Some(card.clone())),
         }
     }
 

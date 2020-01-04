@@ -1,8 +1,9 @@
 use std::result;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
+use std::cell::RefCell;
 
-use failure::{Error, Fail};
+use failure::{Error, Fail, err_msg};
+use chashmap::CHashMap;
 
 use crate::snowflake::Snowflake;
 
@@ -77,7 +78,7 @@ where
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
-    refs: Mutex<HashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>>,
+    refs: CHashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>,
 }
 
 impl<T, U> Store<T, U>
@@ -87,27 +88,50 @@ where
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
-            refs: Mutex::new(HashMap::new()),
+            refs: CHashMap::new(), 
         }
     }
 
     pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let mut refs = self.refs.lock().map_err(|_e| format_err!("refs lock poisoned"))?;
-        let r = refs.get(&id).and_then(|wk| wk.upgrade());
+        let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> = RefCell::new(
+            Err(err_msg("unknown load error"))
+        );
 
-        if let Some(locked_ref) = r {
-            Ok(locked_ref)
-        } else {
-            let mut handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
-            if self.backend.exists(id)? {
-                let obj = self.backend.load(id)?;
-                handle.replace(obj);
+        self.refs.alter(id, |val| {
+            // If a previously-left weak pointer is still around, use that.
+            if let Some(weak) = val.clone() {
+                if let Some(strong) = weak.upgrade() {
+                    // use _e here so that the compiler stops complaining
+                    // about us not using a Result
+                    let _e = cell.replace(Ok(strong.clone()));
+                    return Some(weak);
+                }
             }
+            
+            // Otherwise, try to load handle data from the backend.
+            match self.backend.load(id) {
+                Ok(data) => {
+                    // Okay, got good handle data.
+                    // Make a new handle, then make pointers to return and
+                    // to store. 
+                    let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, data);
+                    let ret = Arc::new(Mutex::new(handle));
+                    let weak = Arc::downgrade(&ret);
 
-            let r = Arc::new(Mutex::new(handle));
-            refs.insert(id, Arc::downgrade(&r));
-            Ok(r)
-        }
+                    let _e = cell.replace(Ok(ret));
+                    Some(weak)
+                },
+                Err(e) => {
+                    // Error loading handle data.
+                    // Just store an error message in the Cell and keep
+                    // the data in the hashmap the same.
+                    let _e = cell.replace(Err(e));
+                    val
+                }
+            }
+        });
+
+        cell.into_inner()
     }
 
     pub fn store(&self, id: Snowflake, object: T) -> Result<()> {
@@ -133,7 +157,7 @@ where
 }
 
 pub trait StoreBackend<T> {
-    fn load(&self, id: Snowflake) -> Result<T>;
+    fn load(&self, id: Snowflake) -> Result<Option<T>>;
     fn exists(&self, id: Snowflake) -> Result<bool>;
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
     fn delete(&self, id: Snowflake) -> Result<()>;
@@ -201,11 +225,11 @@ mod tests {
             Ok(map.contains_key(&id))
         }
 
-        fn load(&self, id: Snowflake) -> Result<MockStoredData> {
+        fn load(&self, id: Snowflake) -> Result<Option<MockStoredData>> {
             let map = self.data.read().unwrap();
             match map.get(&id) {
-                None => Err(NotFoundError::new(id).into()),
-                Some(pl) => Ok(pl.clone()),
+                None => Ok(None),
+                Some(pl) => Ok(Some(pl.clone())),
             }
         }
 
