@@ -1,16 +1,11 @@
 use failure::Fail;
-use serde::{Deserialize, Serialize};
 
 use crate::component::Component;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct Resource {
     val: i64,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     min: Option<i64>,
-
-    #[serde(skip_serializing_if = "Option::is_none", default)]
     max: Option<i64>,
 }
 

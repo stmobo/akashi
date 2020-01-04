@@ -1,16 +1,25 @@
+#[macro_use]
+extern crate failure;
+
 use actix_rt;
 use actix_web::{web, App, HttpServer};
 
 use std::sync::{Arc, Mutex};
 
-//mod api;
-use akashi::local_storage::{LocalStoreBackend, SharedLocalStore};
+mod utils;
+mod player;
+mod inventory;
+mod models;
+
+use akashi::SnowflakeGenerator;
+use akashi::local_storage::SharedLocalStore;
 
 const BIND_URL: &str = "127.0.0.1:8088";
 
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     let shared_store = web::Data::new(SharedLocalStore::new());
+    let cm = web::Data::new(utils::new_component_manager(&shared_store));
     let ctr: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
 
     println!("Akashi starting on {}...", BIND_URL);
@@ -25,23 +34,24 @@ async fn main() -> std::io::Result<()> {
             *r += 1;
         }
 
-        //let snowflake_gen = utils::snowflake_generator(0, id);
+        let snowflake_gen = web::Data::new(Mutex::new(SnowflakeGenerator::new(0, id)));
 
         println!("Started thread {}!", id);
+        let players_scope = player::bind_routes(
+            web::scope("/players"),
+            shared_store.clone(),
+            snowflake_gen.clone(),
+            cm.clone()
+        );
 
-        //let players_scope = web::scope("/players")
-        //    .app_data(shared_store.clone())
-        //    .app_data(snowflake_gen.clone());
-        //let players_scope =
-        //    api::player::bind_routes::<SharedLocalStore, LocalStoreBackend>(players_scope);
+        let inv_scope = inventory::bind_routes(
+            web::scope("/inventories"),
+            shared_store.clone(),
+            snowflake_gen.clone(),
+            cm.clone()
+        );
 
-        //let inv_scope = web::scope("/inventories")
-        //    .app_data(shared_store.clone())
-        //    .app_data(snowflake_gen.clone());
-        //let inv_scope =
-        //    api::inventory::bind_routes::<SharedLocalStore, LocalStoreBackend>(inv_scope);
-
-        App::new() //.service(players_scope).service(inv_scope)
+        App::new().service(players_scope).service(inv_scope)
     })
     .bind("127.0.0.1:8088")
     .unwrap()

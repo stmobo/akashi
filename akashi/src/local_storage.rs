@@ -172,17 +172,27 @@ impl StoreBackend<Card> for LocalStoreBackend {
     }
 }
 
-impl ComponentStore<Inventory> for LocalStoreBackend {
+pub struct LocalInventoryStore {
+    backend: Arc<LocalStoreBackend>
+}
+
+impl LocalInventoryStore {
+    pub fn new(backend: Arc<LocalStoreBackend>) -> LocalInventoryStore {
+        LocalInventoryStore { backend }
+    }
+}
+
+impl ComponentStore<Inventory> for LocalInventoryStore {
     fn exists(&self, id: Snowflake, _cm: &ComponentManager) -> Result<bool> {
-        let inventories = self.inventories.read().unwrap();
+        let inventories = self.backend.inventories.read().unwrap();
         Ok(inventories.contains_key(&id))
     }
 
     fn load(&self, id: Snowflake, _cm: &ComponentManager) -> Result<Option<Inventory>> {
-        let map = self.inventories.read().unwrap();
+        let map = self.backend.inventories.read().unwrap();
         Ok(map.get(&id).map(|card_vec| {
             let mut inv = Inventory::empty(id);
-            let cards = self.cards.read().unwrap();
+            let cards = self.backend.cards.read().unwrap();
 
             for card_id in card_vec.iter() {
                 if let Some(card) = cards.get(card_id) {
@@ -196,13 +206,13 @@ impl ComponentStore<Inventory> for LocalStoreBackend {
 
     fn store(&self, id: Snowflake, data: Inventory, _cm: &ComponentManager) -> Result<()> {
         {
-            let mut cards = self.cards.write().unwrap();
+            let mut cards = self.backend.cards.write().unwrap();
             for card in data.iter() {
                 cards.insert(card.id(), card.clone());
             }
         }
 
-        let mut inventories = self.inventories.write().unwrap();
+        let mut inventories = self.backend.inventories.write().unwrap();
         let ids: Vec<Snowflake> = data.iter().map(|x| x.id()).collect();
         inventories.insert(id, ids);
         Ok(())
@@ -211,7 +221,7 @@ impl ComponentStore<Inventory> for LocalStoreBackend {
     fn delete(&self, id: Snowflake, _cm: &ComponentManager) -> Result<()> {
         let inv: Vec<Snowflake>;
         {
-            let mut inventories = self.inventories.write().unwrap();
+            let mut inventories = self.backend.inventories.write().unwrap();
             inv = match inventories.remove(&id) {
                 None => return Ok(()),
                 Some(v) => v,
@@ -219,7 +229,7 @@ impl ComponentStore<Inventory> for LocalStoreBackend {
         }
 
         {
-            let mut cards = self.cards.write().unwrap();
+            let mut cards = self.backend.cards.write().unwrap();
             for card_id in inv.iter() {
                 cards.remove(card_id);
             }
