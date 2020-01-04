@@ -183,6 +183,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_checked_set() {
+        let mut rsc = Resource::new(50, Some(0), Some(100));
+
+        // Sets within the stored bounds should be OK.
+        assert!(rsc.checked_set(25.into()).is_ok());
+        assert_eq!(rsc.val(), 25);
+
+        // Sets outside the bounds should error.
+        assert!(rsc.checked_set((-20).into()).is_err());
+        assert!(rsc.checked_set(111.into()).is_err());
+        assert_eq!(rsc.val(), 25);
+    }
+
+    #[test]
+    fn test_capped_set() {
+        let mut rsc = Resource::new(50, Some(0), Some(100));
+
+        // Sets within the stored bounds work as usual.
+        rsc.capped_set(25.into());
+        assert_eq!(rsc.val(), 25);
+
+        // Sets outside the bounds cap at the min and max values,
+        // respectively.
+        rsc.capped_set((-20).into());
+        assert_eq!(rsc.val(), 0);
+
+        rsc.capped_set(111.into());
+        assert_eq!(rsc.val(), 100);
+    }
+
+    #[test]
     fn test_checked_add() {
         let mut rsc = Resource::new(50, Some(0), Some(100));
 
