@@ -97,10 +97,12 @@ where
     let res = web::block(move || -> Result<PlayerModel, Error> {
         let store: &Store<Player, U> = shared_store.get_store();
         let wrapper = store.load(player_id)?;
-        let handle = wrapper
+        let mut handle = wrapper
             .lock()
             .map_err(|_e| format_err!("failed to lock wrapper"))?;
-        let pl = handle.get().ok_or_else(|| player_not_found(player_id))?;
+        let pl = handle
+            .get_mut()
+            .ok_or_else(|| player_not_found(player_id))?;
 
         let mut rsc_a: ResourceA = pl.get_component()?.unwrap_or_default();
         match transaction {
@@ -118,11 +120,11 @@ where
                 .map_err(|e| BadTransactionError::new(e.to_string()))?,
             Transaction::TransferFrom((from_pl_id, val)) => {
                 let other_wrapper = store.load(from_pl_id)?;
-                let other_handle = other_wrapper
+                let mut other_handle = other_wrapper
                     .lock()
                     .map_err(|_e| format_err!("failed to lock wrapper"))?;
                 let other_pl = other_handle
-                    .get()
+                    .get_mut()
                     .ok_or_else(|| player_not_found(from_pl_id))?;
 
                 let mut other_rsc_a: ResourceA = other_pl.get_component()?.unwrap_or_default();
@@ -367,7 +369,7 @@ mod tests {
     fn test_player_transaction_sub() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(
+        let mut pl = Player::empty(
             &mut snowflake_gen,
             Arc::new(utils::new_component_manager(&shared_store)),
         );
@@ -403,7 +405,7 @@ mod tests {
     fn test_player_transaction_sub_validate() {
         let shared_store = store();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(
+        let mut pl = Player::empty(
             &mut snowflake_gen,
             Arc::new(utils::new_component_manager(&shared_store)),
         );
@@ -471,8 +473,8 @@ mod tests {
         let shared_store = store();
         let cm = Arc::new(utils::new_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl_1 = Player::empty(&mut snowflake_gen, cm.clone());
-        let pl_2 = Player::empty(&mut snowflake_gen, cm);
+        let mut pl_1 = Player::empty(&mut snowflake_gen, cm.clone());
+        let mut pl_2 = Player::empty(&mut snowflake_gen, cm);
 
         pl_1.set_component::<ResourceA>(110.into()).unwrap();
         pl_2.set_component::<ResourceA>(0.into()).unwrap();
@@ -518,8 +520,8 @@ mod tests {
         let shared_store = store();
         let cm = Arc::new(utils::new_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl_1 = Player::empty(&mut snowflake_gen, cm.clone());
-        let pl_2 = Player::empty(&mut snowflake_gen, cm);
+        let mut pl_1 = Player::empty(&mut snowflake_gen, cm.clone());
+        let mut pl_2 = Player::empty(&mut snowflake_gen, cm);
 
         pl_1.set_component::<ResourceA>(50.into()).unwrap();
         pl_2.set_component::<ResourceA>(0.into()).unwrap();

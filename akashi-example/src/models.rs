@@ -109,7 +109,7 @@ impl CardModel {
     }
 
     pub fn as_card(self, cm: Arc<ComponentManager>) -> Result<Card, Error> {
-        let card = Card::new(self.id, cm);
+        let mut card = Card::new(self.id, cm);
         let name = CardName(self.name);
         let value = CardValue(self.value);
 

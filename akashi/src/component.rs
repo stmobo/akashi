@@ -194,7 +194,7 @@ pub trait ComponentsAttached {
         cm.get_component::<T>(self.id())
     }
 
-    fn set_component<T: Component + 'static>(&self, component: T) -> Result<()> {
+    fn set_component<T: Component + 'static>(&mut self, component: T) -> Result<()> {
         let cm = self.component_manager();
         cm.set_component::<T>(self.id(), component)
     }
@@ -204,7 +204,7 @@ pub trait ComponentsAttached {
         cm.component_exists::<T>(self.id())
     }
 
-    fn delete_component<T: Component + 'static>(&self) -> Result<()> {
+    fn delete_component<T: Component + 'static>(&mut self) -> Result<()> {
         let cm = self.component_manager();
         cm.delete_component::<T>(self.id())
     }
@@ -264,7 +264,7 @@ mod tests {
         cm.register_component(new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
+        let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         // Check to make sure attempts to use unregistered component types are gracefully handled.
         expect_err::<TypeNotFoundError, Option<TestComponentB>>(card.get_component());
@@ -282,7 +282,7 @@ mod tests {
         cm.register_component(new_store::<TestComponentB>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
+        let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         let component_a: Option<TestComponentA> = card.get_component().unwrap();
         let component_b: Option<TestComponentB> = card.get_component().unwrap();
@@ -309,7 +309,7 @@ mod tests {
         cm.register_component(new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
+        let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         // Component hasn't been added yet.
         assert!(!card.has_component::<TestComponentA>().unwrap());
@@ -327,7 +327,7 @@ mod tests {
         cm.register_component(new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let card = Card::generate(&mut snowflake_gen, Arc::new(cm));
+        let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         // Deletion of nonexistent Components shouldn't fail.
         assert!(!card.has_component::<TestComponentA>().unwrap());
