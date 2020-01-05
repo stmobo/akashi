@@ -51,9 +51,9 @@ pub fn create_new_player(
     cm: Arc<ComponentManager>,
 ) -> (Snowflake, Player) {
     let players = shared_store.players();
-    let pl = Player::empty(snowflake_gen, cm);
+    let pl = Player::empty(snowflake_gen, cm.clone());
     let pl_id = pl.id();
-    players.store(pl_id, pl.clone()).unwrap();
+    players.store(pl_id, pl.clone(), cm).unwrap();
 
     (pl_id, pl)
 }

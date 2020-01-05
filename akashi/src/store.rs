@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, Weak};
 use chashmap::CHashMap;
 use failure::{err_msg, Error, Fail};
 
+use crate::component::ComponentManager;
 use crate::snowflake::Snowflake;
 
 type Result<T> = result::Result<T, Error>;
@@ -92,7 +93,11 @@ where
         }
     }
 
-    pub fn load(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
+    pub fn load(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager>,
+    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
         let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
             RefCell::new(Err(err_msg("unknown load error")));
 
@@ -108,7 +113,7 @@ where
             }
 
             // Otherwise, try to load handle data from the backend.
-            match self.backend.load(id) {
+            match self.backend.load(id, cm) {
                 Ok(data) => {
                     // Okay, got good handle data.
                     // Make a new handle, then make pointers to return and
@@ -134,15 +139,15 @@ where
         cell.into_inner()
     }
 
-    pub fn store(&self, id: Snowflake, object: T) -> Result<()> {
-        let wrapper = self.load(id)?;
+    pub fn store(&self, id: Snowflake, object: T, cm: Arc<ComponentManager>) -> Result<()> {
+        let wrapper = self.load(id, cm)?;
         let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.replace(object);
         handle.store()
     }
 
-    pub fn delete(&self, id: Snowflake) -> Result<()> {
-        let wrapper = self.load(id)?;
+    pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager>) -> Result<()> {
+        let wrapper = self.load(id, cm)?;
         let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.delete()
     }
@@ -157,7 +162,7 @@ where
 }
 
 pub trait StoreBackend<T> {
-    fn load(&self, id: Snowflake) -> Result<Option<T>>;
+    fn load(&self, id: Snowflake, cm: Arc<ComponentManager>) -> Result<Option<T>>;
     fn exists(&self, id: Snowflake) -> Result<bool>;
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
     fn delete(&self, id: Snowflake) -> Result<()>;
@@ -225,7 +230,11 @@ mod tests {
             Ok(map.contains_key(&id))
         }
 
-        fn load(&self, id: Snowflake) -> Result<Option<MockStoredData>> {
+        fn load(
+            &self,
+            id: Snowflake,
+            _cm: Arc<ComponentManager>,
+        ) -> Result<Option<MockStoredData>> {
             let map = self.data.read().unwrap();
             match map.get(&id) {
                 None => Ok(None),
@@ -284,7 +293,9 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
-        let result = store.load(snowflake_gen.generate()).unwrap();
+        let result = store
+            .load(snowflake_gen.generate(), Arc::new(ComponentManager::new()))
+            .unwrap();
 
         let handle = result.lock().unwrap();
         assert!(!handle.exists());
@@ -299,7 +310,9 @@ mod tests {
         backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
 
-        let wrapper = store.load(*data.id()).unwrap();
+        let wrapper = store
+            .load(*data.id(), Arc::new(ComponentManager::new()))
+            .unwrap();
         let handle = wrapper.lock().unwrap();
 
         assert!(handle.exists());
@@ -320,13 +333,16 @@ mod tests {
         backend.store(*data.id(), &data).unwrap();
         let store = Arc::new(MockStore::new(backend));
 
+        let cm = Arc::new(ComponentManager::new());
+        let cm2 = cm.clone();
+
         let store2 = store.clone();
         let handle = thread::spawn(move || {
-            let wrapper_1 = store2.load(id).unwrap();
+            let wrapper_1 = store2.load(id, cm2).unwrap();
             wrapper_1
         });
 
-        let wrapper_2 = store.load(*data.id()).unwrap();
+        let wrapper_2 = store.load(*data.id(), cm).unwrap();
         let wrapper_1 = handle.join().unwrap();
 
         // wrapper_1 and wrapper_2 should be Arcs pointing to the same
@@ -342,9 +358,10 @@ mod tests {
 
         let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
+        let cm = Arc::new(ComponentManager::new());
 
         {
-            let wrapper = store.load(*data.id()).unwrap();
+            let wrapper = store.load(*data.id(), cm.clone()).unwrap();
             let mut handle = wrapper.lock().unwrap();
             assert!(!handle.exists());
 
@@ -352,7 +369,7 @@ mod tests {
             handle.store().unwrap();
         }
 
-        let wrapper = store.load(*data.id()).unwrap();
+        let wrapper = store.load(*data.id(), cm).unwrap();
         let handle = wrapper.lock().unwrap();
         let data_copy = handle.get().unwrap();
 

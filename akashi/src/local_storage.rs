@@ -87,7 +87,7 @@ impl StoreBackend<Player> for LocalStoreBackend {
         Ok(players.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Option<Player>> {
+    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager>) -> Result<Option<Player>> {
         let players = self.players.read().unwrap();
         if let Some(s) = players.get(&id) {
             Ok(Some(s.clone()))
@@ -134,7 +134,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
         Ok(cards.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake) -> Result<Option<Card>> {
+    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager>) -> Result<Option<Card>> {
         let cards = self.cards.read().unwrap();
         match cards.get(&id) {
             None => Ok(None),
@@ -302,22 +302,23 @@ mod tests {
         let store = Arc::new(SharedLocalStore::new());
         let s2 = store.clone();
         let cm = Arc::new(ComponentManager::new());
+        let cm2 = cm.clone();
 
         let handle = thread::spawn(move || {
             let store = s2;
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
-            let pl = Player::empty(&mut snowflake_gen, cm.clone());
+            let pl = Player::empty(&mut snowflake_gen, cm2.clone());
             let pl_id = pl.id().clone();
 
             let players = store.players();
             let cards = store.cards();
 
-            let card = Card::generate(&mut snowflake_gen, cm);
+            let card = Card::generate(&mut snowflake_gen, cm2.clone());
             let card_id = card.id().clone();
 
-            players.store(pl_id, pl).unwrap();
-            cards.store(card_id, card).unwrap();
+            players.store(pl_id, pl, cm2.clone()).unwrap();
+            cards.store(card_id, card, cm2).unwrap();
 
             (pl_id, card_id)
         });
@@ -329,11 +330,11 @@ mod tests {
         let players = store.players();
         let cards = store.cards();
 
-        let pl_ref = players.load(player_id).unwrap();
+        let pl_ref = players.load(player_id, cm.clone()).unwrap();
         let pl_handle = pl_ref.lock().unwrap();
         assert!(pl_handle.get().is_some());
 
-        let card_ref = cards.load(card_id).unwrap();
+        let card_ref = cards.load(card_id, cm).unwrap();
         let card_handle = card_ref.lock().unwrap();
         assert!(card_handle.get().is_some());
     }
