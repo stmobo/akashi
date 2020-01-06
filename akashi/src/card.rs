@@ -1,18 +1,19 @@
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 
-use crate::component::{Component, ComponentManager, ComponentsAttached};
+use crate::ecs::{Component, ComponentManager, Entity};
+use crate::player::Player;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
+use crate::util::Result;
 
 #[derive(Clone, Debug)]
 pub struct Card {
     id: Snowflake,
-    component_manager: Arc<ComponentManager>,
+    component_manager: Arc<ComponentManager<Card>>,
 }
 
 impl Card {
-    pub fn new(id: Snowflake, component_manager: Arc<ComponentManager>) -> Card {
+    pub fn new(id: Snowflake, component_manager: Arc<ComponentManager<Card>>) -> Card {
         Card {
             id,
             component_manager,
@@ -21,7 +22,7 @@ impl Card {
 
     pub fn generate(
         snowflake_gen: &mut SnowflakeGenerator,
-        component_manager: Arc<ComponentManager>,
+        component_manager: Arc<ComponentManager<Card>>,
     ) -> Card {
         Card {
             id: snowflake_gen.generate(),
@@ -33,8 +34,8 @@ impl Card {
         self.id
     }
 
-    pub fn component_manager(&self) -> &ComponentManager {
-        self.component_manager.deref()
+    pub fn component_manager(&self) -> &ComponentManager<Card> {
+        &self.component_manager
     }
 }
 
@@ -44,12 +45,33 @@ impl PartialEq for Card {
     }
 }
 
-impl ComponentsAttached for Card {
+impl Entity for Card {
     fn id(&self) -> Snowflake {
         self.id()
     }
-    fn component_manager(&self) -> &ComponentManager {
+
+    fn component_manager(&self) -> &ComponentManager<Card> {
         self.component_manager()
+    }
+
+    fn get_component<T: Component<Card> + 'static>(&self) -> Result<Option<T>> {
+        let cm = self.component_manager();
+        cm.get_component::<T>(&self)
+    }
+
+    fn set_component<T: Component<Card> + 'static>(&mut self, component: T) -> Result<()> {
+        let cm = self.component_manager();
+        cm.set_component::<T>(&self, component)
+    }
+
+    fn has_component<T: Component<Card> + 'static>(&self) -> Result<bool> {
+        let cm = self.component_manager();
+        cm.component_exists::<T>(&self)
+    }
+
+    fn delete_component<T: Component<Card> + 'static>(&mut self) -> Result<()> {
+        let cm = self.component_manager();
+        cm.delete_component::<T>(&self)
     }
 }
 
@@ -100,7 +122,7 @@ impl Inventory {
     }
 }
 
-impl Component for Inventory {}
+impl Component<Player> for Inventory {}
 
 mod tests {
     #[allow(unused_imports)]

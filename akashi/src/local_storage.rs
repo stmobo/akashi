@@ -1,16 +1,15 @@
 use std::collections::HashMap;
-use std::result;
+use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
 
-use failure::{format_err, Error};
+use failure::format_err;
 
 use crate::card::{Card, Inventory};
-use crate::component::{Component, ComponentManager, ComponentStore};
+use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
-
-type Result<T> = result::Result<T, Error>;
+use crate::util::Result;
 
 pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,
@@ -87,7 +86,7 @@ impl StoreBackend<Player> for LocalStoreBackend {
         Ok(players.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager>) -> Result<Option<Player>> {
+    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager<Player>>) -> Result<Option<Player>> {
         let players = self.players.read().unwrap();
         if let Some(s) = players.get(&id) {
             Ok(Some(s.clone()))
@@ -134,7 +133,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
         Ok(cards.contains_key(&id))
     }
 
-    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager>) -> Result<Option<Card>> {
+    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager<Card>>) -> Result<Option<Card>> {
         let cards = self.cards.read().unwrap();
         match cards.get(&id) {
             None => Ok(None),
@@ -182,16 +181,16 @@ impl LocalInventoryStore {
     }
 }
 
-impl ComponentStore<Inventory> for LocalInventoryStore {
-    fn exists(&self, id: Snowflake, _cm: &ComponentManager) -> Result<bool> {
+impl ComponentStore<Player, Inventory> for LocalInventoryStore {
+    fn exists(&self, player: &Player) -> Result<bool> {
         let inventories = self.backend.inventories.read().unwrap();
-        Ok(inventories.contains_key(&id))
+        Ok(inventories.contains_key(&player.id()))
     }
 
-    fn load(&self, id: Snowflake, _cm: &ComponentManager) -> Result<Option<Inventory>> {
+    fn load(&self, player: &Player) -> Result<Option<Inventory>> {
         let map = self.backend.inventories.read().unwrap();
-        Ok(map.get(&id).map(|card_vec| {
-            let mut inv = Inventory::empty(id);
+        Ok(map.get(&player.id()).map(|card_vec| {
+            let mut inv = Inventory::empty(player.id());
             let cards = self.backend.cards.read().unwrap();
 
             for card_id in card_vec.iter() {
@@ -204,7 +203,7 @@ impl ComponentStore<Inventory> for LocalInventoryStore {
         }))
     }
 
-    fn store(&self, id: Snowflake, data: Inventory, _cm: &ComponentManager) -> Result<()> {
+    fn store(&self, player: &Player, data: Inventory) -> Result<()> {
         {
             let mut cards = self.backend.cards.write().unwrap();
             for card in data.iter() {
@@ -214,15 +213,15 @@ impl ComponentStore<Inventory> for LocalInventoryStore {
 
         let mut inventories = self.backend.inventories.write().unwrap();
         let ids: Vec<Snowflake> = data.iter().map(|x| x.id()).collect();
-        inventories.insert(id, ids);
+        inventories.insert(player.id(), ids);
         Ok(())
     }
 
-    fn delete(&self, id: Snowflake, _cm: &ComponentManager) -> Result<()> {
+    fn delete(&self, player: &Player) -> Result<()> {
         let inv: Vec<Snowflake>;
         {
             let mut inventories = self.backend.inventories.write().unwrap();
-            inv = match inventories.remove(&id) {
+            inv = match inventories.remove(&player.id()) {
                 None => return Ok(()),
                 Some(v) => v,
             };
@@ -239,50 +238,64 @@ impl ComponentStore<Inventory> for LocalInventoryStore {
     }
 }
 
-pub struct LocalComponentStorage<T: Component + Clone + 'static> {
-    data: RwLock<HashMap<Snowflake, T>>,
+pub struct LocalComponentStorage<T, U>
+where
+    T: Entity + 'static,
+    U: Component<T> + Clone + 'static,
+{
+    data: RwLock<HashMap<Snowflake, U>>,
+    pd: PhantomData<T>,
 }
 
-impl<T: Component + Clone + 'static> LocalComponentStorage<T> {
-    pub fn new() -> LocalComponentStorage<T> {
+impl<T, U> LocalComponentStorage<T, U>
+where
+    T: Entity + 'static,
+    U: Component<T> + Clone + 'static,
+{
+    pub fn new() -> LocalComponentStorage<T, U> {
         LocalComponentStorage {
             data: RwLock::new(HashMap::new()),
+            pd: PhantomData,
         }
     }
 }
 
-impl<T: Component + Clone + 'static> ComponentStore<T> for LocalComponentStorage<T> {
-    fn load(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<Option<T>> {
+impl<T, U> ComponentStore<T, U> for LocalComponentStorage<T, U>
+where
+    T: Entity + 'static,
+    U: Component<T> + Clone + 'static,
+{
+    fn load(&self, entity: &T) -> Result<Option<U>> {
         let data_map = self
             .data
             .read()
             .map_err(|_e| format_err!("storage lock poisoned"))?;
-        Ok(data_map.get(&entity_id).map(|x| x.clone()))
+        Ok(data_map.get(&entity.id()).map(|x| x.clone()))
     }
 
-    fn store(&self, entity_id: Snowflake, component: T, _cm: &ComponentManager) -> Result<()> {
+    fn store(&self, entity: &T, component: U) -> Result<()> {
         let mut data_map = self
             .data
             .write()
             .map_err(|_e| format_err!("storage lock poisoned"))?;
-        data_map.insert(entity_id, component);
+        data_map.insert(entity.id(), component);
         Ok(())
     }
 
-    fn exists(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<bool> {
+    fn exists(&self, entity: &T) -> Result<bool> {
         let data_map = self
             .data
             .read()
             .map_err(|_e| format_err!("storage lock poisoned"))?;
-        Ok(data_map.contains_key(&entity_id))
+        Ok(data_map.contains_key(&entity.id()))
     }
 
-    fn delete(&self, entity_id: Snowflake, _cm: &ComponentManager) -> Result<()> {
+    fn delete(&self, entity: &T) -> Result<()> {
         let mut data_map = self
             .data
             .write()
             .map_err(|_e| format_err!("storage lock poisoned"))?;
-        data_map.remove(&entity_id);
+        data_map.remove(&entity.id());
         Ok(())
     }
 }
@@ -294,31 +307,38 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use crate::component::ComponentManager;
+    use crate::ecs::ComponentManager;
     use crate::snowflake::SnowflakeGenerator;
 
     #[test]
     fn threaded_access() {
         let store = Arc::new(SharedLocalStore::new());
         let s2 = store.clone();
-        let cm = Arc::new(ComponentManager::new());
-        let cm2 = cm.clone();
+
+        let pl_cm = Arc::new(ComponentManager::new());
+        let pl_cm2 = pl_cm.clone();
+
+        let card_cm = Arc::new(ComponentManager::new());
+        let card_cm2 = card_cm.clone();
 
         let handle = thread::spawn(move || {
             let store = s2;
+            let pl_cm = pl_cm2;
+            let card_cm = card_cm2;
+
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
-            let pl = Player::empty(&mut snowflake_gen, cm2.clone());
+            let pl = Player::empty(&mut snowflake_gen, pl_cm.clone());
             let pl_id = pl.id().clone();
 
             let players = store.players();
             let cards = store.cards();
 
-            let card = Card::generate(&mut snowflake_gen, cm2.clone());
+            let card = Card::generate(&mut snowflake_gen, card_cm.clone());
             let card_id = card.id().clone();
 
-            players.store(pl_id, pl, cm2.clone()).unwrap();
-            cards.store(card_id, card, cm2).unwrap();
+            players.store(pl_id, pl, pl_cm).unwrap();
+            cards.store(card_id, card, card_cm).unwrap();
 
             (pl_id, card_id)
         });
@@ -330,11 +350,11 @@ mod tests {
         let players = store.players();
         let cards = store.cards();
 
-        let pl_ref = players.load(player_id, cm.clone()).unwrap();
+        let pl_ref = players.load(player_id, pl_cm.clone()).unwrap();
         let pl_handle = pl_ref.lock().unwrap();
         assert!(pl_handle.get().is_some());
 
-        let card_ref = cards.load(card_id, cm).unwrap();
+        let card_ref = cards.load(card_id, card_cm).unwrap();
         let card_handle = card_ref.lock().unwrap();
         assert!(card_handle.get().is_some());
     }

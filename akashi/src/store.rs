@@ -1,20 +1,19 @@
 use std::cell::RefCell;
-use std::result;
 use std::sync::{Arc, Mutex, Weak};
 
 use chashmap::CHashMap;
-use failure::{err_msg, Error, Fail};
+use failure::{err_msg, Fail};
 
-use crate::component::ComponentManager;
+use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
-
-type Result<T> = result::Result<T, Error>;
+use crate::util::Result;
 
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
 
 pub trait SharedStore<T, U>
 where
+    T: Entity + 'static,
     U: StoreBackend<T>,
 {
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
@@ -22,6 +21,7 @@ where
 
 pub struct StoreHandle<T, U>
 where
+    T: Entity + 'static,
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
@@ -31,6 +31,7 @@ where
 
 impl<T, U> StoreHandle<T, U>
 where
+    T: Entity + 'static,
     U: StoreBackend<T>,
 {
     pub fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
@@ -76,6 +77,7 @@ where
 
 pub struct Store<T, U>
 where
+    T: Entity + 'static,
     U: StoreBackend<T>,
 {
     backend: Arc<U>,
@@ -84,6 +86,7 @@ where
 
 impl<T, U> Store<T, U>
 where
+    T: Entity + 'static,
     U: StoreBackend<T>,
 {
     pub fn new(backend: Arc<U>) -> Store<T, U> {
@@ -96,7 +99,7 @@ where
     pub fn load(
         &self,
         id: Snowflake,
-        cm: Arc<ComponentManager>,
+        cm: Arc<ComponentManager<T>>,
     ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
         let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
             RefCell::new(Err(err_msg("unknown load error")));
@@ -139,14 +142,14 @@ where
         cell.into_inner()
     }
 
-    pub fn store(&self, id: Snowflake, object: T, cm: Arc<ComponentManager>) -> Result<()> {
+    pub fn store(&self, id: Snowflake, object: T, cm: Arc<ComponentManager<T>>) -> Result<()> {
         let wrapper = self.load(id, cm)?;
         let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.replace(object);
         handle.store()
     }
 
-    pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager>) -> Result<()> {
+    pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
         let wrapper = self.load(id, cm)?;
         let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.delete()
@@ -161,8 +164,8 @@ where
     }
 }
 
-pub trait StoreBackend<T> {
-    fn load(&self, id: Snowflake, cm: Arc<ComponentManager>) -> Result<Option<T>>;
+pub trait StoreBackend<T: Entity + 'static> {
+    fn load(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<Option<T>>;
     fn exists(&self, id: Snowflake) -> Result<bool>;
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
     fn delete(&self, id: Snowflake) -> Result<()>;
@@ -189,6 +192,7 @@ mod tests {
     use std::sync::{Arc, RwLock};
     use std::thread;
 
+    use crate::ecs::Component;
     use crate::snowflake::SnowflakeGenerator;
 
     #[derive(Clone)]
@@ -196,6 +200,36 @@ mod tests {
         id: Snowflake,
         field_a: String,
         field_b: u64,
+        cm: Arc<ComponentManager<MockStoredData>>,
+    }
+
+    impl Entity for MockStoredData {
+        fn id(&self) -> Snowflake {
+            self.id
+        }
+
+        fn component_manager(&self) -> &ComponentManager<MockStoredData> {
+            &self.cm
+        }
+
+        fn get_component<T: Component<MockStoredData> + 'static>(&self) -> Result<Option<T>> {
+            self.cm.get_component::<T>(&self)
+        }
+
+        fn set_component<T: Component<MockStoredData> + 'static>(
+            &mut self,
+            component: T,
+        ) -> Result<()> {
+            self.cm.set_component::<T>(&self, component)
+        }
+
+        fn has_component<T: Component<MockStoredData> + 'static>(&self) -> Result<bool> {
+            self.cm.component_exists::<T>(&self)
+        }
+
+        fn delete_component<T: Component<MockStoredData> + 'static>(&mut self) -> Result<()> {
+            self.cm.delete_component::<T>(&self)
+        }
     }
 
     struct MockStoreBackend {
@@ -216,6 +250,7 @@ mod tests {
                 id,
                 field_a,
                 field_b,
+                cm: Arc::new(ComponentManager::new()),
             }
         }
 
@@ -233,7 +268,7 @@ mod tests {
         fn load(
             &self,
             id: Snowflake,
-            _cm: Arc<ComponentManager>,
+            _cm: Arc<ComponentManager<MockStoredData>>,
         ) -> Result<Option<MockStoredData>> {
             let map = self.data.read().unwrap();
             match map.get(&id) {

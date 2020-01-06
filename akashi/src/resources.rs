@@ -1,6 +1,7 @@
 use failure::Fail;
 
-use crate::component::Component;
+use crate::ecs::Component;
+use crate::player::Player;
 
 #[derive(Clone, Debug)]
 pub struct Resource {
@@ -148,7 +149,7 @@ impl From<Resource> for i64 {
     }
 }
 
-impl Component for Resource {}
+impl Component<Player> for Resource {}
 
 #[derive(Fail, Debug)]
 #[fail(
