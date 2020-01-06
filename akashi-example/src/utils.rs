@@ -7,14 +7,12 @@ use serde::Deserialize;
 use std::sync::Mutex;
 
 use crate::models::{CardName, CardType, CardValue, ResourceA};
+
 use akashi::local_storage::{LocalComponentStorage, LocalInventoryStore, SharedLocalStore};
-use akashi::{ComponentManager, Snowflake, SnowflakeGenerator};
+use akashi::{Card, ComponentManager, Player, Snowflake, SnowflakeGenerator};
 
 #[cfg(test)]
 use std::any::type_name;
-
-#[cfg(test)]
-use akashi::Player;
 
 #[cfg(test)]
 use std::sync::Arc;
@@ -24,17 +22,23 @@ use actix_web::dev;
 
 pub type SnowflakeGeneratorState = web::Data<Mutex<SnowflakeGenerator>>;
 
-pub fn new_component_manager(shared_store: &SharedLocalStore) -> ComponentManager {
+pub fn card_component_manager() -> ComponentManager<Card> {
+    let mut cm = ComponentManager::new();
+    cm.register_component(LocalComponentStorage::<Card, CardName>::new());
+    cm.register_component(LocalComponentStorage::<Card, CardValue>::new());
+    cm.register_component(LocalComponentStorage::<Card, CardType>::new());
+    cm
+}
+
+pub fn player_component_manager(shared_store: &SharedLocalStore) -> ComponentManager<Player> {
     let mut cm = ComponentManager::new();
     cm.register_component(LocalInventoryStore::new(shared_store.backend()));
-    cm.register_component(LocalComponentStorage::<ResourceA>::new());
-    cm.register_component(LocalComponentStorage::<CardName>::new());
-    cm.register_component(LocalComponentStorage::<CardValue>::new());
-    cm.register_component(LocalComponentStorage::<CardType>::new());
+    cm.register_component(LocalComponentStorage::<Player, ResourceA>::new());
 
     cm
 }
 
+#[cfg(test)]
 pub fn snowflake_generator(group_id: u64, worker_id: u64) -> SnowflakeGeneratorState {
     web::Data::new(Mutex::new(SnowflakeGenerator::new(group_id, worker_id)))
 }
@@ -48,7 +52,7 @@ pub fn store() -> web::Data<SharedLocalStore> {
 pub fn create_new_player(
     shared_store: &SharedLocalStore,
     snowflake_gen: &mut SnowflakeGenerator,
-    cm: Arc<ComponentManager>,
+    cm: Arc<ComponentManager<Player>>,
 ) -> (Snowflake, Player) {
     let players = shared_store.players();
     let pl = Player::empty(snowflake_gen, cm.clone());

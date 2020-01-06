@@ -4,11 +4,11 @@ use serde::Deserialize;
 use actix_web::{web, HttpResponse, Scope};
 
 use akashi::store::{SharedStore, Store, StoreBackend};
-use akashi::{Card, ComponentManager, ComponentsAttached, Inventory, Player, Snowflake};
+use akashi::{Card, ComponentManager, Entity, Inventory, Player, Snowflake};
 
 use crate::models::{CardModel, CardName, CardType, CardValue};
 use crate::utils;
-use crate::utils::{ObjectNotFoundError, SnowflakeGeneratorState};
+use crate::utils::SnowflakeGeneratorState;
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -16,7 +16,7 @@ type Result<T> = std::result::Result<T, Error>;
 async fn get_inventory<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -74,19 +74,21 @@ async fn add_to_inventory<T, U>(
     opts: web::Json<InventoryAddOptions>,
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager>,
+    pl_cm: web::Data<ComponentManager<Player>>,
+    card_cm: web::Data<ComponentManager<Card>>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
     U: StoreBackend<Player> + StoreBackend<Card> + Send + Sync + 'static,
 {
     let pl_id = path.0;
-    let cm = cm.into_inner();
+    let pl_cm = pl_cm.into_inner();
+    let card_cm = card_cm.into_inner();
     let opts = opts.into_inner();
 
     let res = web::block(move || -> Result<Vec<CardModel>> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let wrapper = players.load(pl_id, cm.clone())?;
+        let wrapper = players.load(pl_id, pl_cm.clone())?;
         let mut handle = wrapper
             .lock()
             .map_err(|_e| format_err!("player handle lock poisoned"))?;
@@ -99,7 +101,7 @@ where
             .unwrap_or_else(|| Inventory::empty(pl_id));
 
         let new_card: Card = match opts {
-            InventoryAddOptions::Existing(c) => c.as_card(cm.clone())?,
+            InventoryAddOptions::Existing(c) => c.as_card(card_cm.clone())?,
             InventoryAddOptions::New(card_opts) => {
                 let mut c: Card;
 
@@ -107,7 +109,7 @@ where
                     let mut snowflake_gen = sg
                         .lock()
                         .map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
-                    c = Card::generate(&mut snowflake_gen, cm.clone());
+                    c = Card::generate(&mut snowflake_gen, card_cm.clone());
                 }
 
                 c.set_component(card_opts.card_type)?;
@@ -115,7 +117,7 @@ where
                 c.set_component(CardValue::new(card_opts.value))?;
 
                 let cards: &Store<Card, U> = shared_store.get_store();
-                cards.store(c.id(), c.clone(), cm.clone())?;
+                cards.store(c.id(), c.clone(), card_cm.clone())?;
                 c
             }
         };
@@ -143,7 +145,7 @@ where
 async fn get_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -180,7 +182,7 @@ where
 async fn delete_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -226,7 +228,7 @@ async fn move_card<T, U>(
     path: web::Path<(Snowflake, Snowflake)>,
     shared_store: web::Data<T>,
     query: web::Query<CardMoveOptions>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -284,7 +286,8 @@ pub fn bind_routes<T, U>(
     scope: Scope,
     store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager>,
+    pl_cm: web::Data<ComponentManager<Player>>,
+    card_cm: web::Data<ComponentManager<Card>>,
 ) -> Scope
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
@@ -293,7 +296,8 @@ where
     scope
         .app_data(store)
         .app_data(sg)
-        .app_data(cm)
+        .app_data(pl_cm)
+        .app_data(card_cm)
         .route("/{invid}/{cardid}/move", web::post().to(move_card::<T, U>))
         .route("/{invid}/{cardid}", web::get().to(get_card::<T, U>))
         .route("/{invid}/{cardid}", web::delete().to(delete_card::<T, U>))
@@ -309,25 +313,29 @@ mod tests {
     use std::sync::Arc;
 
     use crate::utils;
-    use crate::utils::{get_body_json, snowflake_generator, store};
+    use crate::utils::{get_body_json, snowflake_generator, store, ObjectNotFoundError};
     use akashi::local_storage::SharedLocalStore;
     use akashi::SnowflakeGenerator;
 
     #[test]
     fn test_get_inventory() {
         let shared_store = SharedLocalStore::new();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
+        let card_cm = web::Data::new(utils::card_component_manager());
+        let arc_card_cm = card_cm.clone().into_inner();
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm.clone());
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
         let mut inv: Inventory = pl
             .get_component()
             .unwrap()
             .unwrap_or_else(|| Inventory::empty(pl.id()));
 
-        let mut card = Card::generate(&mut snowflake_gen, acm);
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foo".to_owned())).unwrap();
         card.set_component(CardValue::new(15.0)).unwrap();
         card.set_component(CardType::TypeA).unwrap();
@@ -340,7 +348,7 @@ mod tests {
         let resp = block_on(get_inventory(
             web::Path::from((pl_id,)),
             web::Data::new(shared_store),
-            cm,
+            pl_cm,
         ))
         .unwrap();
 
@@ -353,13 +361,14 @@ mod tests {
     #[test]
     fn test_get_inventory_not_exists() {
         let shared_store = SharedLocalStore::new();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let resp = block_on(get_inventory(
             web::Path::from((snowflake_gen.generate(),)),
             web::Data::new(shared_store),
-            cm,
+            pl_cm,
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
@@ -367,14 +376,15 @@ mod tests {
     #[test]
     fn test_add_new_card() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
+        let card_cm = web::Data::new(utils::card_component_manager());
+        let arc_card_cm = card_cm.clone().into_inner();
         let sg = snowflake_generator(0, 0);
 
-        let (pl_id, pl) = utils::create_new_player(
-            &shared_store,
-            &mut sg.lock().unwrap(),
-            cm.clone().into_inner(),
-        );
+        let (pl_id, pl) =
+            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm);
         let card_store = shared_store.cards();
 
         let resp = block_on(add_to_inventory(
@@ -386,7 +396,8 @@ mod tests {
             })),
             shared_store.clone(),
             sg,
-            cm.clone(),
+            pl_cm.clone(),
+            card_cm.clone(),
         ))
         .unwrap();
 
@@ -408,7 +419,7 @@ mod tests {
         assert_eq!(card.name, "bar");
         assert_eq!(card.value, 13.0);
 
-        let wrapper = card_store.load(card.id, cm.into_inner()).unwrap();
+        let wrapper = card_store.load(card.id, arc_card_cm).unwrap();
         let handle = wrapper.lock().unwrap();
         let stored_card = CardModel::new(handle.get().unwrap()).unwrap();
 
@@ -418,14 +429,14 @@ mod tests {
     #[test]
     fn test_add_existing_card() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let card_cm = web::Data::new(utils::card_component_manager());
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
         let sg = snowflake_generator(0, 0);
 
-        let (pl_id, pl) = utils::create_new_player(
-            &shared_store,
-            &mut sg.lock().unwrap(),
-            cm.clone().into_inner(),
-        );
+        let (pl_id, pl) =
+            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm);
 
         let model = CardModel {
             id: sg.lock().unwrap().generate(),
@@ -439,7 +450,8 @@ mod tests {
             web::Json(InventoryAddOptions::Existing(model.clone())),
             shared_store.clone(),
             sg,
-            cm,
+            pl_cm,
+            card_cm,
         ))
         .unwrap();
 
@@ -460,15 +472,16 @@ mod tests {
     #[test]
     fn test_get_card() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_card_cm = Arc::new(utils::card_component_manager());
+        let arc_pl_cm = pl_cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm.clone());
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
         let mut inv = Inventory::empty(pl_id);
 
-        let mut card = Card::generate(&mut snowflake_gen, acm);
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foobar".to_owned()))
             .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
@@ -483,7 +496,7 @@ mod tests {
         let resp = block_on(get_card(
             web::Path::from((pl_id, card_id)),
             shared_store,
-            cm,
+            pl_cm,
         ))
         .unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -495,25 +508,27 @@ mod tests {
     #[test]
     fn test_get_card_not_exists() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let (pl_id, mut pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, acm);
+        let (pl_id, mut pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
         let inv = Inventory::empty(pl_id);
         pl.set_component(inv).unwrap();
 
         let resp = block_on(get_card(
             web::Path::from((snowflake_gen.generate(), snowflake_gen.generate())),
             shared_store.clone(),
-            cm.clone(),
+            pl_cm.clone(),
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
 
         let resp = block_on(get_card(
             web::Path::from((pl_id, snowflake_gen.generate())),
             shared_store,
-            cm,
+            pl_cm,
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
@@ -521,15 +536,17 @@ mod tests {
     #[test]
     fn test_delete_card() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_card_cm = Arc::new(utils::card_component_manager());
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm.clone());
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
         let mut inv = Inventory::empty(pl_id);
 
-        let mut card = Card::generate(&mut snowflake_gen, acm);
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foobar".to_owned()))
             .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
@@ -545,7 +562,7 @@ mod tests {
         let resp = block_on(delete_card(
             web::Path::from((pl_id, card_id)),
             shared_store.clone(),
-            cm,
+            pl_cm,
         ))
         .unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -560,25 +577,27 @@ mod tests {
     #[test]
     fn test_delete_card_not_exists() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let (pl_id, mut pl) = utils::create_new_player(&shared_store, &mut snowflake_gen, acm);
+        let (pl_id, mut pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
         let inv = Inventory::empty(pl_id);
         pl.set_component(inv).unwrap();
 
         let resp = block_on(delete_card(
             web::Path::from((snowflake_gen.generate(), snowflake_gen.generate())),
             shared_store.clone(),
-            cm.clone(),
+            pl_cm.clone(),
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
 
         let resp = block_on(delete_card(
             web::Path::from((pl_id, snowflake_gen.generate())),
             shared_store,
-            cm,
+            pl_cm,
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
@@ -586,11 +605,13 @@ mod tests {
     #[test]
     fn test_move_card() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_card_cm = Arc::new(utils::card_component_manager());
+        let arc_pl_cm = pl_cm.clone().into_inner();
+
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let mut card = Card::generate(&mut snowflake_gen, acm.clone());
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foobar".to_owned()))
             .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
@@ -599,7 +620,7 @@ mod tests {
         let card_id = card.id();
 
         let (src_pl_id, mut src_pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm.clone());
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
         let mut src_inv = Inventory::empty(src_pl_id);
         src_inv.insert(card);
 
@@ -607,7 +628,7 @@ mod tests {
         src_pl.set_component(src_inv).unwrap();
 
         let (dest_pl_id, dest_pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
 
         let query_str = format!("to={}", dest_pl_id);
         let query = web::Query::<CardMoveOptions>::from_query(query_str.as_str()).unwrap();
@@ -616,7 +637,7 @@ mod tests {
             web::Path::from((src_pl_id, card_id)),
             shared_store.clone(),
             query,
-            cm,
+            pl_cm,
         ))
         .unwrap();
 
@@ -637,11 +658,12 @@ mod tests {
     #[test]
     fn test_move_card_nonexistent_dest() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let pl_cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let arc_card_cm = Arc::new(utils::card_component_manager());
+        let arc_pl_cm = pl_cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let mut card = Card::generate(&mut snowflake_gen, acm.clone());
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foobar".to_owned()))
             .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
@@ -650,7 +672,7 @@ mod tests {
         let card_id = card.id();
 
         let (src_pl_id, mut src_pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, acm);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
         let mut src_inv = Inventory::empty(src_pl_id);
         src_inv.insert(card);
         assert_eq!(src_inv.len(), 1);
@@ -662,7 +684,7 @@ mod tests {
             web::Path::from((src_pl_id, card_id)),
             shared_store.clone(),
             query,
-            cm,
+            pl_cm,
         ));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
 

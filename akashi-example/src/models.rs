@@ -3,14 +3,12 @@ use failure::Error;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use akashi::{
-    Card, Component, ComponentManager, ComponentsAttached, Inventory, Player, Resource, Snowflake,
-};
+use akashi::{Card, Component, ComponentManager, Entity, Inventory, Player, Resource, Snowflake};
 
 #[derive(Debug, Clone)]
 pub struct ResourceA(pub Resource);
 
-impl Component for ResourceA {}
+impl Component<Player> for ResourceA {}
 
 impl From<i64> for ResourceA {
     fn from(val: i64) -> ResourceA {
@@ -61,7 +59,7 @@ pub enum CardType {
     TypeD,
 }
 
-impl Component for CardType {}
+impl Component<Card> for CardType {}
 
 #[derive(Debug, Clone)]
 pub struct CardName(String);
@@ -72,7 +70,7 @@ impl CardName {
     }
 }
 
-impl Component for CardName {}
+impl Component<Card> for CardName {}
 
 #[derive(Debug, Clone)]
 pub struct CardValue(f64);
@@ -83,7 +81,7 @@ impl CardValue {
     }
 }
 
-impl Component for CardValue {}
+impl Component<Card> for CardValue {}
 
 /// Card data exposed by the game API.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,7 +106,7 @@ impl CardModel {
         })
     }
 
-    pub fn as_card(self, cm: Arc<ComponentManager>) -> Result<Card, Error> {
+    pub fn as_card(self, cm: Arc<ComponentManager<Card>>) -> Result<Card, Error> {
         let mut card = Card::new(self.id, cm);
         let name = CardName(self.name);
         let value = CardValue(self.value);

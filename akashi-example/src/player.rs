@@ -5,19 +5,17 @@ use failure::Error;
 use serde::Deserialize;
 
 use akashi::store::{SharedStore, Store, StoreBackend};
-use akashi::{ComponentManager, ComponentsAttached, Player, Snowflake};
+use akashi::{ComponentManager, Entity, Player, Snowflake};
 
 use crate::models::{PlayerModel, ResourceA};
 use crate::utils;
-use crate::utils::{
-    player_not_found, BadTransactionError, ObjectNotFoundError, Pagination, SnowflakeGeneratorState,
-};
+use crate::utils::{player_not_found, BadTransactionError, Pagination, SnowflakeGeneratorState};
 
 // GET /players
 async fn list_players<T, U>(
     query: web::Query<Pagination>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -49,7 +47,7 @@ where
 async fn get_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -90,7 +88,7 @@ async fn resource_a_transaction<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
     transaction: web::Json<Transaction>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -160,7 +158,7 @@ where
 async fn delete_player<T, U>(
     path: web::Path<(Snowflake,)>,
     shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -193,7 +191,7 @@ where
 async fn new_player<T, U>(
     shared_store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -234,7 +232,7 @@ pub fn bind_routes<T, U>(
     scope: Scope,
     store: web::Data<T>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager>,
+    cm: web::Data<ComponentManager<Player>>,
 ) -> Scope
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
@@ -246,6 +244,10 @@ where
         .app_data(cm)
         .route("/{playerid}", web::get().to(get_player::<T, U>))
         .route("/{playerid}", web::delete().to(delete_player::<T, U>))
+        .route(
+            "/{playerid}/resource_a",
+            web::post().to(resource_a_transaction::<T, U>),
+        )
         .route("/new", web::post().to(new_player::<T, U>))
         .route("", web::get().to(list_players::<T, U>))
 }
@@ -255,10 +257,11 @@ mod tests {
     use super::*;
     use actix_web::http;
     use futures::executor::block_on;
-    use std::sync::Arc;
 
     use crate::utils;
-    use crate::utils::{get_body_json, get_body_str, snowflake_generator, store};
+    use crate::utils::{
+        get_body_json, get_body_str, snowflake_generator, store, ObjectNotFoundError,
+    };
 
     use akashi::local_storage::SharedLocalStore;
     use akashi::SnowflakeGenerator;
@@ -267,7 +270,7 @@ mod tests {
     fn test_new_player() {
         let shared_store = store();
         let sg = snowflake_generator(0, 0);
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
 
         let resp = block_on(new_player(shared_store.clone(), sg, cm)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
@@ -279,7 +282,7 @@ mod tests {
     #[test]
     fn test_get_player_exists() {
         let shared_store = SharedLocalStore::new();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let players = shared_store.players();
@@ -304,7 +307,7 @@ mod tests {
     #[test]
     fn test_get_player_not_exists() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
@@ -315,7 +318,7 @@ mod tests {
     #[test]
     fn test_delete_player_exists() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let players = shared_store.players();
@@ -340,7 +343,7 @@ mod tests {
     #[test]
     fn test_delete_player_not_exists() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
@@ -351,7 +354,7 @@ mod tests {
     #[test]
     fn test_player_transaction_add() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let pl = Player::empty(&mut snowflake_gen, acm.clone());
@@ -385,7 +388,7 @@ mod tests {
     #[test]
     fn test_player_transaction_sub() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut pl = Player::empty(&mut snowflake_gen, acm.clone());
@@ -420,7 +423,7 @@ mod tests {
     #[test]
     fn test_player_transaction_sub_validate() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut pl = Player::empty(&mut snowflake_gen, acm.clone());
@@ -453,7 +456,7 @@ mod tests {
     #[test]
     fn test_player_transaction_set() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let pl = Player::empty(&mut snowflake_gen, acm.clone());
@@ -486,7 +489,7 @@ mod tests {
     #[test]
     fn test_player_transaction_transfer() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut pl_1 = Player::empty(&mut snowflake_gen, acm.clone());
@@ -535,7 +538,7 @@ mod tests {
     #[test]
     fn test_player_transaction_transfer_validate() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut pl_1 = Player::empty(&mut snowflake_gen, acm.clone());
@@ -582,7 +585,7 @@ mod tests {
     #[test]
     fn test_list_players_empty() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
 
         let resp = block_on(list_players(query, shared_store, cm)).unwrap();
@@ -595,7 +598,7 @@ mod tests {
     #[test]
     fn test_list_players_nonempty() {
         let shared_store = store();
-        let cm = web::Data::new(utils::new_component_manager(&shared_store));
+        let cm = web::Data::new(utils::player_component_manager(&shared_store));
         let acm = cm.clone().into_inner();
         let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
