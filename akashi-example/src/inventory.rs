@@ -85,7 +85,7 @@ where
 
     let res = web::block(move || -> Result<Vec<CardModel>> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let mut handle = players.load(pl_id, pl_cm.clone())?;
+        let mut handle = players.load_mut(pl_id, pl_cm.clone())?;
 
         let player = handle
             .get_mut()
@@ -187,7 +187,7 @@ where
 
     let res: CardModel = web::block(move || -> Result<CardModel> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let mut handle = players.load(pl_id, cm)?;
+        let mut handle = players.load_mut(pl_id, cm)?;
         let player = handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(pl_id))?;
@@ -233,7 +233,7 @@ where
     web::block(move || -> Result<()> {
         let players: &Store<Player, U> = shared_store.get_store();
 
-        let mut src_handle = players.load(src_player_id, cm.clone())?;
+        let mut src_handle = players.load_mut(src_player_id, cm.clone())?;
         let src_player = src_handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(src_player_id))?;
@@ -245,7 +245,7 @@ where
             .remove(card_id)
             .ok_or_else(|| utils::card_not_found(card_id))?;
 
-        let mut dest_handle = players.load(dest_player_id, cm.clone())?;
+        let mut dest_handle = players.load_mut(dest_player_id, cm.clone())?;
         let dest_player = dest_handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(dest_player_id))?;

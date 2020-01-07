@@ -96,7 +96,7 @@ where
 
     let res = web::block(move || -> Result<PlayerModel, Error> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let mut handle = store.load(player_id, cm.clone())?;
+        let mut handle = store.load_mut(player_id, cm.clone())?;
         let pl = handle
             .get_mut()
             .ok_or_else(|| player_not_found(player_id))?;
@@ -116,7 +116,7 @@ where
                 .checked_set(val.into())
                 .map_err(|e| BadTransactionError::new(e.to_string()))?,
             Transaction::TransferFrom((from_pl_id, val)) => {
-                let mut other_handle = store.load(from_pl_id, cm.clone())?;
+                let mut other_handle = store.load_mut(from_pl_id, cm.clone())?;
                 let other_pl = other_handle
                     .get_mut()
                     .ok_or_else(|| player_not_found(from_pl_id))?;
@@ -163,7 +163,7 @@ where
 
     web::block(move || -> Result<(), Error> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let mut handle = store.load(id, cm)?;
+        let mut handle = store.load_mut(id, cm)?;
 
         if !handle.exists() {
             Err(player_not_found(id))
@@ -201,7 +201,7 @@ where
 
         let store: &Store<Player, U> = shared_store.get_store();
 
-        let mut handle = store.load(new_pl.id(), cm.clone())?;
+        let mut handle = store.load_mut(new_pl.id(), cm.clone())?;
 
         handle.replace(new_pl);
         handle.store()?;

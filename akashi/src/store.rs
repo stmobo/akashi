@@ -2,51 +2,69 @@
 
 use std::cell::Cell;
 use std::ops::Deref;
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Weak};
 
 extern crate stable_deref_trait;
 use stable_deref_trait::CloneStableDeref;
 
 use chashmap::CHashMap;
 use failure::err_msg;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
 use crate::util::Result;
 
-type StrongSharedMutex<T> = Arc<Mutex<T>>;
-type WeakSharedMutex<T> = Weak<Mutex<T>>;
-
 rental! {
     pub mod handle_ref {
-        //! A self-referential wrapper around an `Arc`ed `Mutex`.
+        //! Self-referential wrappers around shared locks.
         use super::*;
 
-        /// A self-referential type that wraps `Arc<Mutex<StoreHandle>>` into
-        /// something more manageable.
+        /// A self-referential type that wraps `Arc<RwLock<StoreHandle>>`
+        /// into a single immutable reference.
         ///
-        /// This struct contains both an `Arc<Mutex<StoreHandle>>` and
-        /// a `MutexGuard` for that same handle, hence why this requires
-        /// the `rental` crate.
+        /// This struct effectively contains an `Arc` pointing to an
+        /// `RwLock` and a read guard for that same lock.
         ///
-        /// This type supports `Deref` and `DerefMut` to `StoreHandle`,
-        /// which is probably all you'll need to use.
-        #[rental(debug, clone, deref_mut_suffix, covariant, map_suffix = "T")]
-        pub struct HandleRef<H: CloneStableDeref + Deref + 'static, T: 'static> {
+        /// It also supports `Deref` to the inner StoreHandle, which is
+        /// usually all you'll need.
+        #[rental(debug, clone, deref_suffix, covariant, map_suffix = "T")]
+        pub struct HandleReadRef<H: CloneStableDeref + Deref + 'static, T: 'static> {
             head: H,
-            suffix: MutexGuard<'head, T>,
+            suffix: RwLockReadGuard<'head, T>,
+        }
+
+        /// A self-referential type that wraps `Arc<RwLock<StoreHandle>>`
+        /// into a single mutable reference.
+        ///
+        /// This struct effectively contains an `Arc` pointing to an
+        /// `RwLock` and a write guard for that same lock.
+        ///
+        /// It also supports `Deref` and `DerefMut` to the inner
+        /// StoreHandle, which is usually all you'll need.
+        #[rental(debug, clone, deref_mut_suffix, covariant, map_suffix = "T")]
+        pub struct HandleWriteRef<H: CloneStableDeref + Deref + 'static, T: 'static> {
+            head: H,
+            suffix: RwLockWriteGuard<'head, T>,
         }
     }
 }
 
-type StoreHandleReference<T> = handle_ref::HandleRef<Arc<Mutex<T>>, T>;
+use handle_ref::{HandleReadRef, HandleWriteRef};
 
-/// Converts `Arc<Mutex<T>>` to a `HandleRef` by locking the inner `Mutex`.
-fn rent_arced_mutex<T: 'static>(head: Arc<Mutex<T>>) -> Result<StoreHandleReference<T>> {
-    handle_ref::HandleRef::try_new(head, |s| {
-        s.lock().map_err(|_e| err_msg("wrapper lock poisoned"))
-    })
-    .map_err(|e| e.0)
+type StoreReference<T> = Arc<RwLock<T>>;
+type WeakStoreReference<T> = Weak<RwLock<T>>;
+type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
+type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
+
+/// Converts `Arc<RwLock<T>>` to a `ReadReference` by taking the inner read lock.
+fn read_store_reference<T: 'static>(head: StoreReference<T>) -> ReadReference<T> {
+    HandleReadRef::new(head, |s| s.read())
+}
+
+/// Converts `Arc<RwLock<T>>` to a `WriteReference` by locking the inner write lock.
+fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteReference<T> {
+    HandleWriteRef::new(head, |s| s.write())
 }
 
 /// This is a trait for wrapping up objects that contain stores for
@@ -173,7 +191,7 @@ where
     U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, WeakSharedMutex<StoreHandle<T, U>>>,
+    refs: CHashMap<Snowflake, WeakStoreReference<StoreHandle<T, U>>>,
 }
 
 impl<T, U> Store<T, U>
@@ -191,27 +209,27 @@ where
 
     /// Retrieves or creates a possibly-uninitialized StoreHandle from
     /// the underlying hashmap.
-    fn get_handle(&self, id: Snowflake) -> Result<StrongSharedMutex<StoreHandle<T, U>>> {
-        let ret_cell: Cell<Result<StrongSharedMutex<StoreHandle<T, U>>>> =
+    fn get_handle(&self, id: Snowflake) -> Result<StoreReference<StoreHandle<T, U>>> {
+        let ret_cell: Cell<Result<StoreReference<StoreHandle<T, U>>>> =
             Cell::new(Err(err_msg("unknown load error")));
 
         // All of this needs to be done with a write lock on the bucket
         // for this hashmap entry.
         self.refs.alter(id, |val| {
-            // If a previously-left weak pointer is still around, use that.
+            // If a previously-retrieved handle is still around, use that.
             if let Some(weak) = val.clone() {
                 if let Some(strong) = weak.upgrade() {
                     // use _e here so that the compiler stops complaining
                     // about us not using a Result
                     let _e = ret_cell.replace(Ok(strong));
-                    return Some(weak);
+                    return val;
                 }
             }
 
             // Create a new handle and store it into the hashmap.
             // This handle starts uninitialized.
             let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
-            let ret = Arc::new(Mutex::new(handle));
+            let ret = Arc::new(RwLock::new(handle));
             let weak = Arc::downgrade(&ret);
 
             let _e = ret_cell.replace(Ok(ret));
@@ -221,20 +239,45 @@ where
         ret_cell.into_inner()
     }
 
-    /// Loads the `Entity` with the given ID from storage, or get a
-    /// handle to the `Entity` if it's already been loaded by another
-    /// thread.
+    /// Gets an immutable reference to the handle for the `Entity` with
+    /// the given ID.
     ///
-    /// This not only loads a handle to the `Entity` from the store,
-    /// but also locks it for you. As such, the return type of this
-    /// function is a smart reference to the loaded `StoreHandle`.
+    /// Data for the `Entity` will be loaded from storage if needed.
+    ///
+    /// The returned reference is read-locked, so multiple threads can
+    /// use references from this function at once.
     pub fn load(
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<StoreHandleReference<StoreHandle<T, U>>> {
+    ) -> Result<ReadReference<StoreHandle<T, U>>> {
         let wrapper = self.get_handle(id)?;
-        let mut handle = rent_arced_mutex(wrapper)?;
+
+        {
+            let mut write_handle = wrapper.write();
+            if !write_handle.initialized() {
+                write_handle.set_object(self.backend.load(id, cm)?);
+            }
+        }
+
+        let handle = read_store_reference(wrapper);
+        Ok(handle)
+    }
+
+    /// Gets a mutable reference to the handle for the `Entity` with
+    /// the given ID.
+    ///
+    /// Data for the `Entity` will be loaded from storage if needed.
+    ///
+    /// The returned reference is write-locked, so exclusive access to
+    /// the handle is ensured.
+    pub fn load_mut(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<WriteReference<StoreHandle<T, U>>> {
+        let wrapper = self.get_handle(id)?;
+        let mut handle = write_store_reference(wrapper);
 
         if !handle.initialized() {
             handle.set_object(self.backend.load(id, cm)?);
@@ -248,9 +291,7 @@ where
     pub fn store(&self, object: T) -> Result<()> {
         let id = object.id();
         let wrapper = self.get_handle(id)?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+        let mut handle = wrapper.write();
 
         handle.set_object(Some(object));
         handle.store()
@@ -264,16 +305,14 @@ where
     /// If you already have an open handle to the `Entity`, you should
     /// use `StoreHandle::delete()` instead.
     pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
-        let mut handle = self.load(id, cm)?;
+        let mut handle = self.load_mut(id, cm)?;
         handle.delete()
     }
 
     /// Checks to see if an `Entity` with the given ID exists.
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
         let wrapper = self.get_handle(id)?;
-        let handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+        let handle = wrapper.read();
 
         if handle.initialized() {
             Ok(handle.exists())
@@ -508,7 +547,7 @@ mod tests {
         let cm = Arc::new(ComponentManager::new());
 
         {
-            let mut handle = store.load(*data.id(), cm.clone()).unwrap();
+            let mut handle = store.load_mut(*data.id(), cm.clone()).unwrap();
             assert!(!handle.exists());
 
             handle.replace(data.clone());

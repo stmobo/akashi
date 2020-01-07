@@ -278,6 +278,7 @@ dependencies = [
  "downcast-rs",
  "failure",
  "failure_derive",
+ "parking_lot 0.10.0",
  "rental",
  "stable_deref_trait",
 ]
