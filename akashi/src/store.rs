@@ -203,7 +203,7 @@ where
                 if let Some(strong) = weak.upgrade() {
                     // use _e here so that the compiler stops complaining
                     // about us not using a Result
-                    let _e = ret_cell.replace(Ok(strong.clone()));
+                    let _e = ret_cell.replace(Ok(strong));
                     return Some(weak);
                 }
             }
