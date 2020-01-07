@@ -46,9 +46,9 @@ mod tests {
     fn test_build_component_manager() {
         // Check to make sure this doesn't panic or anything.
         let mut cm = ComponentManager::new();
-        cm.register_component(new_store::<TestComponentA>());
-        cm.register_component(new_store::<TestComponentB>());
-        cm.register_component(new_store::<TestComponentC>());
+        cm.register_component("TestComponentA", new_store::<TestComponentA>());
+        cm.register_component("TestComponentB", new_store::<TestComponentB>());
+        cm.register_component("TestComponentC", new_store::<TestComponentC>());
     }
 
     fn expect_err<E, T>(res: Result<T, Error>)
@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn test_unregistered_type() {
         let mut cm = ComponentManager::new();
-        cm.register_component(new_store::<TestComponentA>());
+        cm.register_component("TestComponentA", new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
@@ -84,8 +84,8 @@ mod tests {
     #[test]
     fn test_load_store_components() {
         let mut cm = ComponentManager::new();
-        cm.register_component(new_store::<TestComponentA>());
-        cm.register_component(new_store::<TestComponentB>());
+        cm.register_component("TestComponentA", new_store::<TestComponentA>());
+        cm.register_component("TestComponentB", new_store::<TestComponentB>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn test_components_exist() {
         let mut cm = ComponentManager::new();
-        cm.register_component(new_store::<TestComponentA>());
+        cm.register_component("TestComponentA", new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn test_delete_components() {
         let mut cm = ComponentManager::new();
-        cm.register_component(new_store::<TestComponentA>());
+        cm.register_component("TestComponentA", new_store::<TestComponentA>());
 
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));

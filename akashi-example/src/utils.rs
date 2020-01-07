@@ -24,16 +24,22 @@ pub type SnowflakeGeneratorState = web::Data<Mutex<SnowflakeGenerator>>;
 
 pub fn card_component_manager() -> ComponentManager<Card> {
     let mut cm = ComponentManager::new();
-    cm.register_component(LocalComponentStorage::<Card, CardName>::new());
-    cm.register_component(LocalComponentStorage::<Card, CardValue>::new());
-    cm.register_component(LocalComponentStorage::<Card, CardType>::new());
+    cm.register_component("CardName", LocalComponentStorage::<Card, CardName>::new());
+    cm.register_component("CardValue", LocalComponentStorage::<Card, CardValue>::new());
+    cm.register_component("CardType", LocalComponentStorage::<Card, CardType>::new());
     cm
 }
 
 pub fn player_component_manager(shared_store: &SharedLocalStore) -> ComponentManager<Player> {
     let mut cm = ComponentManager::new();
-    cm.register_component(LocalInventoryStore::new(shared_store.backend()));
-    cm.register_component(LocalComponentStorage::<Player, ResourceA>::new());
+    cm.register_component(
+        "Inventory",
+        LocalInventoryStore::new(shared_store.backend()),
+    );
+    cm.register_component(
+        "ResourceA",
+        LocalComponentStorage::<Player, ResourceA>::new(),
+    );
 
     cm
 }

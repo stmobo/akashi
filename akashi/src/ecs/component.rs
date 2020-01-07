@@ -42,33 +42,52 @@ downcast_rs::impl_downcast!(Component<T>);
 #[derive(Debug)]
 pub struct ComponentManager<T: Entity + 'static> {
     component_types: HashMap<TypeId, ComponentTypeData<T>>,
+    component_names: HashMap<TypeId, String>,
+    component_names_inv: HashMap<String, TypeId>,
 }
 
 impl<T: Entity + 'static> ComponentManager<T> {
     pub fn new() -> ComponentManager<T> {
         ComponentManager {
             component_types: HashMap::new(),
+            component_names: HashMap::new(),
+            component_names_inv: HashMap::new(),
         }
     }
 
-    /// Registers a backing storage object for a `Component` type.
+    /// Registers a backing storage object and unique name for a
+    /// `Component` type.
     ///
     /// This registers a backing store and associated functions for
     /// a `Component` type, allowing Entities that use this manager
     /// to get/set Component data of that type.
-    pub fn register_component<U, V>(&mut self, store: V)
+    pub fn register_component<U, V>(&mut self, name: &str, store: V)
     where
         U: Component<T> + 'static,
         V: ComponentStore<T, U> + Sync + Send + 'static,
     {
         self.component_types
             .insert(TypeId::of::<U>(), ComponentTypeData::new(store));
+
+        self.component_names
+            .insert(TypeId::of::<U>(), name.to_owned());
+
+        self.component_names_inv
+            .insert(name.to_owned(), TypeId::of::<U>());
     }
 
     /// Check to see if a particular `Component` type has registered
     /// operations.
     pub fn is_registered<U: Component<T> + 'static>(&self) -> bool {
         self.component_types.contains_key(&TypeId::of::<U>())
+    }
+
+    pub fn component_name(&self, type_id: &TypeId) -> Option<&str> {
+        self.component_names.get(type_id).map(|r| r.as_str())
+    }
+
+    pub fn component_type_id(&self, name: &str) -> Option<&TypeId> {
+        self.component_names_inv.get(name)
     }
 
     /// Save data for a `Component` to the appropriate backing store.
