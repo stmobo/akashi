@@ -3,6 +3,8 @@
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+use crate::ecs::{Component, Entity};
+
 /// This type is used to represent unique IDs across Akashi.
 ///
 /// Snowflake instances encode a timestamp, application-specific
@@ -44,6 +46,8 @@ pub fn snowflake_worker_id(s: Snowflake) -> u64 {
 pub fn snowflake_group_id(s: Snowflake) -> u64 {
     (s >> GROUP_ID_SHIFT) & MAX_GROUP_ID
 }
+
+impl<E: Entity + 'static> Component<E> for Snowflake {}
 
 /// Generates `Snowflake` IDs.
 #[derive(Debug)]

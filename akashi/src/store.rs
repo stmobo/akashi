@@ -1,6 +1,8 @@
 //! Akashi's storage system for `Entities`.
 
+use std::any;
 use std::cell::Cell;
+use std::fmt;
 use std::ops::Deref;
 use std::sync::{Arc, Weak};
 
@@ -50,12 +52,12 @@ rental! {
     }
 }
 
-use handle_ref::{HandleReadRef, HandleWriteRef};
+pub use handle_ref::{HandleReadRef, HandleWriteRef};
 
 type StoreReference<T> = Arc<RwLock<T>>;
 type WeakStoreReference<T> = Weak<RwLock<T>>;
-type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
-type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
+pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
+pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
 
 /// Converts `Arc<RwLock<T>>` to a `ReadReference` by taking the inner read lock.
 fn read_store_reference<T: 'static>(head: StoreReference<T>) -> ReadReference<T> {
@@ -324,6 +326,22 @@ where
     /// Retrieves a list of `Entity` IDs from storage.
     pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
         self.backend.keys(page, limit)
+    }
+}
+
+impl<T, U> fmt::Debug for Store<T, U>
+where
+    T: Entity + 'static,
+    U: StoreBackend<T> + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Store<{}, {}> {{ {} keys }}",
+            any::type_name::<T>(),
+            any::type_name::<U>(),
+            self.refs.len()
+        )
     }
 }
 
