@@ -189,3 +189,149 @@ where
         self.component_backend.delete(entity)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::local_storage::{LocalComponentStorage, LocalEntityStorage};
+    use crate::snowflake::SnowflakeGenerator;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct MockTypeData {
+        title: String,
+        character: String,
+    }
+
+    struct Fixtures {
+        card_store: Arc<Store<Card, LocalEntityStorage<Card>>>,
+        card_type_store: Arc<Store<CardType, LocalEntityStorage<CardType>>>,
+        card_cm: Arc<ComponentManager<Card>>,
+        card_type_cm: Arc<ComponentManager<CardType>>,
+        snowflake_gen: SnowflakeGenerator,
+    }
+
+    impl Fixtures {
+        fn new() -> Fixtures {
+            let s: Arc<LocalEntityStorage<Card>> = Arc::new(LocalEntityStorage::new());
+            let card_store = Arc::new(Store::new(s));
+
+            let s: Arc<LocalEntityStorage<CardType>> = Arc::new(LocalEntityStorage::new());
+            let card_type_store = Arc::new(Store::new(s));
+
+            let mut card_type_cm: ComponentManager<CardType> = ComponentManager::new();
+            card_type_cm.register_component(
+                "MockTypeData",
+                LocalComponentStorage::<CardType, MockTypeData>::new(),
+            );
+
+            let card_type_cm = Arc::new(card_type_cm);
+
+            let mut card_cm: ComponentManager<Card> = ComponentManager::new();
+            card_cm.register_component(
+                "CardType",
+                CardTypeLayer::new(
+                    LocalComponentStorage::<Card, Snowflake>::new(),
+                    card_type_store.clone(),
+                    card_type_cm.clone(),
+                ),
+            );
+
+            let card_cm = Arc::new(card_cm);
+
+            Fixtures {
+                card_store,
+                card_type_store,
+                card_cm,
+                card_type_cm,
+                snowflake_gen: SnowflakeGenerator::new(0, 0),
+            }
+        }
+    }
+
+    impl Component<CardType> for MockTypeData {}
+
+    // TODO: make type inference for this less painful
+    type LocalAttachedCardType = AttachedCardType<LocalEntityStorage<CardType>>;
+
+    #[test]
+    fn test_store_type() {
+        let mut fixtures = Fixtures::new();
+        let type_id = fixtures.snowflake_gen.generate();
+        let card_id: Snowflake;
+
+        // Create and store a new card with an attached type ID.
+        let mut card = Card::generate(&mut fixtures.snowflake_gen, fixtures.card_cm.clone());
+        card.set_component(AttachedCardType::new(
+            type_id,
+            fixtures.card_type_store.clone(),
+            fixtures.card_type_cm.clone(),
+        ))
+        .unwrap();
+
+        card_id = card.id();
+        fixtures.card_store.store(card).unwrap();
+
+        // Now load it again and check to see if the CardTypeLayer
+        // wrapper code loaded the correct type ID.
+        let handle = fixtures
+            .card_store
+            .load(card_id, fixtures.card_cm.clone())
+            .unwrap();
+        let card = handle.get().unwrap();
+        let attached_type: LocalAttachedCardType = card.get_component().unwrap().unwrap();
+
+        assert_eq!(attached_type.type_id, type_id);
+    }
+
+    #[test]
+    fn test_attached_card_type_load() {
+        let mut fixtures = Fixtures::new();
+
+        // Create and store a new Card Type with attached MockTypeData.
+        let mut card_type =
+            CardType::generate(&mut fixtures.snowflake_gen, fixtures.card_type_cm.clone());
+        let type_id = card_type.id();
+
+        let type_data = MockTypeData {
+            title: "Foo".to_owned(),
+            character: "Alice".to_owned(),
+        };
+
+        card_type.set_component(type_data).unwrap();
+        fixtures.card_type_store.store(card_type).unwrap();
+
+        // Create and store a new card with an attached type ID.
+        let card_id: Snowflake;
+        let mut card = Card::generate(&mut fixtures.snowflake_gen, fixtures.card_cm.clone());
+
+        card.set_component(AttachedCardType::new(
+            type_id,
+            fixtures.card_type_store.clone(),
+            fixtures.card_type_cm.clone(),
+        ))
+        .unwrap();
+
+        card_id = card.id();
+        fixtures.card_store.store(card).unwrap();
+
+        // Reload the card from storage.
+        let handle = fixtures
+            .card_store
+            .load(card_id, fixtures.card_cm.clone())
+            .unwrap();
+        let card = handle.get().unwrap();
+
+        // Get attached type data.
+        let attached_type: LocalAttachedCardType = card.get_component().unwrap().unwrap();
+        assert_eq!(attached_type.type_id, type_id);
+
+        // Attempt to load the type's attached MockTypeData.
+        let handle = attached_type.load().unwrap();
+        let card_type = handle.get().unwrap();
+        let type_data: MockTypeData = card_type.get_component().unwrap().unwrap();
+
+        assert_eq!(type_data.title, "Foo");
+        assert_eq!(type_data.character, "Alice");
+    }
+}

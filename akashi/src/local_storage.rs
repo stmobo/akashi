@@ -247,6 +247,65 @@ impl ComponentStore<Player, Inventory> for LocalInventoryStore {
     }
 }
 
+pub struct LocalEntityStorage<T: Entity + Clone + 'static> {
+    data: RwLock<HashMap<Snowflake, T>>,
+}
+
+impl<T> LocalEntityStorage<T>
+where
+    T: Entity + Clone + 'static,
+{
+    pub fn new() -> LocalEntityStorage<T> {
+        LocalEntityStorage {
+            data: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+impl<T> StoreBackend<T> for LocalEntityStorage<T>
+where
+    T: Entity + Clone + 'static,
+{
+    fn exists(&self, id: Snowflake) -> Result<bool> {
+        let data = self.data.read().unwrap();
+        Ok(data.contains_key(&id))
+    }
+
+    fn load(&self, id: Snowflake, _cm: Arc<ComponentManager<T>>) -> Result<Option<T>> {
+        let data = self.data.read().unwrap();
+        Ok(data.get(&id).map(|v| v.clone()))
+    }
+
+    fn store(&self, id: Snowflake, obj: &T) -> Result<()> {
+        let mut data = self.data.write().unwrap();
+        data.insert(id, obj.clone());
+        Ok(())
+    }
+
+    fn delete(&self, id: Snowflake) -> Result<()> {
+        let mut data = self.data.write().unwrap();
+        data.remove(&id);
+        Ok(())
+    }
+
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        let ids: Vec<Snowflake>;
+        let start_index = page * limit;
+
+        {
+            let data = self.data.read().unwrap();
+            ids = data
+                .keys()
+                .skip(start_index as usize)
+                .take(limit as usize)
+                .copied()
+                .collect();
+        }
+
+        Ok(ids)
+    }
+}
+
 /// In-memory `Component` storage backend.
 ///
 /// This is mainly meant for use in testing and for prototyping. It has
