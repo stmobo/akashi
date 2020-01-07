@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 extern crate stable_deref_trait;
-use stable_deref_trait::StableDeref;
+use stable_deref_trait::CloneStableDeref;
 
 use chashmap::CHashMap;
 use failure::err_msg;
@@ -32,7 +32,7 @@ rental! {
         /// This type supports `Deref` and `DerefMut` to `StoreHandle`,
         /// which is probably all you'll need to use.
         #[rental(debug, clone, deref_mut_suffix, covariant, map_suffix = "T")]
-        pub struct HandleRef<H: StableDeref + Deref + 'static, T: 'static> {
+        pub struct HandleRef<H: CloneStableDeref + Deref + 'static, T: 'static> {
             head: H,
             suffix: MutexGuard<'head, T>,
         }
