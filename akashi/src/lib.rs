@@ -23,10 +23,10 @@ extern crate downcast_rs;
 extern crate failure_derive;
 
 pub mod card;
+pub mod components;
 pub mod ecs;
 pub mod local_storage;
 pub mod player;
-pub mod resources;
 pub mod snowflake;
 pub mod store;
 mod util;
@@ -41,7 +41,7 @@ pub use ecs::{Component, ComponentManager, ComponentStore, Entity};
 pub use player::Player;
 
 #[doc(inline)]
-pub use resources::Resource;
+pub use components::Resource;
 
 #[doc(inline)]
 pub use snowflake::{Snowflake, SnowflakeGenerator};
