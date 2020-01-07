@@ -1,7 +1,7 @@
 # Akashi
 
-![docs](https://docs.rs/akashi/badge.svg)
-![tests](https://github.com/stmobo/akashi/workflows/tests/badge.svg)
+[![docs](https://docs.rs/akashi/badge.svg)](https://docs.rs/akashi/0.1.0/akashi/)
+[![tests](https://github.com/stmobo/akashi/workflows/tests/badge.svg)](https://github.com/stmobo/akashi)
 
 A framework for building collectible card games and gacha games.
 
