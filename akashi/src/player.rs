@@ -1,3 +1,5 @@
+//! A representation of a game player.
+
 use std::any::TypeId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -5,6 +7,9 @@ use std::sync::Arc;
 use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
+/// Represents a player / user.
+///
+/// Strictly speaking, this is just a minimal Entity object.
 #[derive(Debug, Clone)]
 pub struct Player {
     id: Snowflake,
@@ -13,6 +18,7 @@ pub struct Player {
 }
 
 impl Player {
+    /// Create a new `Player` instance.
     pub fn new(
         id: Snowflake,
         component_manager: Arc<ComponentManager<Player>>,
@@ -25,6 +31,8 @@ impl Player {
         }
     }
 
+    /// Create an 'empty' `Player` instance with no attached `Components`
+    /// and a randomly-generated ID.
     pub fn empty(
         snowflake_gen: &mut SnowflakeGenerator,
         component_manager: Arc<ComponentManager<Player>>,
@@ -36,10 +44,12 @@ impl Player {
         }
     }
 
+    /// Get this `Player`'s unique ID.
     pub fn id(&self) -> Snowflake {
         self.id
     }
 
+    /// Get a reference to this `Player`'s associated `ComponentManager`.
     pub fn component_manager(&self) -> &ComponentManager<Player> {
         &self.component_manager
     }

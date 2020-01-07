@@ -1,3 +1,5 @@
+//! A trait for defining `Component` storage backends.
+
 use super::component::Component;
 use super::entity::Entity;
 use crate::util::Result;
@@ -8,14 +10,28 @@ use std::sync::Arc;
 
 use failure::Fail;
 
+/// This trait is used to mark backing storage objects for `Component`s.
+///
+/// Structs that implement this trait can be passed to
+/// `ComponentManager::register_component` to allow Entities to load
+/// and store Component data.
 pub trait ComponentStore<T, U>
 where
     T: Entity + 'static,
     U: Component<T> + 'static,
 {
+    /// Loads an instance of a `Component` from storage.
     fn load(&self, entity: &T) -> Result<Option<U>>;
+
+    /// Saves an instance of a `Component` to storage.
     fn store(&self, entity: &T, component: U) -> Result<()>;
+
+    /// Check to see if there is any stored `Component` data associated
+    /// with an `Entity`.
     fn exists(&self, entity: &T) -> Result<bool>;
+
+    /// Delete the stored `Component` data associated with the given
+    /// `Entity`, if any.
     fn delete(&self, entity: &T) -> Result<()>;
 }
 
@@ -29,6 +45,8 @@ type ComponentExistsFn<T> = Box<dyn Fn(&T) -> Result<bool> + Sync + Send>;
 
 type ComponentDeleteFn<T> = Box<dyn Fn(&T) -> Result<()> + Sync + Send>;
 
+/// Used internally by ComponentManager as a proxy to ComponentStore
+/// trait methods.
 pub struct ComponentTypeData<T: Entity + 'static> {
     pub load: ComponentLoadFn<T>,
     pub store: ComponentStoreFn<T>,

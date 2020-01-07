@@ -98,7 +98,7 @@ where
 
         let mut inv: Inventory = player
             .get_component()?
-            .unwrap_or_else(|| Inventory::empty(pl_id));
+            .unwrap_or_else(|| Inventory::empty());
 
         let new_card: Card = match opts {
             InventoryAddOptions::Existing(c) => c.as_card(card_cm.clone())?,
@@ -117,7 +117,7 @@ where
                 c.set_component(CardValue::new(card_opts.value))?;
 
                 let cards: &Store<Card, U> = shared_store.get_store();
-                cards.store(c.id(), c.clone(), card_cm.clone())?;
+                cards.store(c.clone())?;
                 c
             }
         };
@@ -269,7 +269,7 @@ where
 
         let mut dest_inv: Inventory = dest_player
             .get_component()?
-            .unwrap_or_else(|| Inventory::empty(dest_player_id));
+            .unwrap_or_else(|| Inventory::empty());
         dest_inv.insert(card);
 
         dest_player.set_component(dest_inv)?;
@@ -333,7 +333,7 @@ mod tests {
 
         let (pl_id, mut pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let mut inv: Inventory = Inventory::empty(pl.id());
+        let mut inv: Inventory = Inventory::empty();
 
         let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foo".to_owned())).unwrap();
@@ -344,7 +344,7 @@ mod tests {
 
         inv.insert(card);
         pl.set_component(inv).unwrap();
-        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
+        shared_store.players().store(pl).unwrap();
 
         let resp = block_on(get_inventory(
             web::Path::from((pl_id,)),
@@ -488,8 +488,8 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let mut inv = Inventory::empty(pl_id);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
+        let mut inv = Inventory::empty();
 
         let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foobar".to_owned()))
@@ -502,7 +502,7 @@ mod tests {
         inv.insert(card);
 
         pl.set_component(inv).unwrap();
-        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
+        shared_store.players().store(pl).unwrap();
 
         let resp = block_on(get_card(
             web::Path::from((pl_id, card_id)),
@@ -525,10 +525,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let inv = Inventory::empty(pl_id);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
+        let inv = Inventory::empty();
         pl.set_component(inv).unwrap();
-        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
+        shared_store.players().store(pl).unwrap();
 
         let resp = block_on(get_card(
             web::Path::from((snowflake_gen.generate(), snowflake_gen.generate())),
@@ -556,7 +556,7 @@ mod tests {
 
         let (pl_id, mut pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let mut inv = Inventory::empty(pl_id);
+        let mut inv = Inventory::empty();
 
         let mut card = Card::generate(&mut snowflake_gen, arc_card_cm.clone());
         card.set_component(CardName::new("foobar".to_owned()))
@@ -570,10 +570,7 @@ mod tests {
         assert_eq!(inv.len(), 1);
 
         pl.set_component(inv).unwrap();
-        shared_store
-            .players()
-            .store(pl_id, pl, arc_pl_cm.clone())
-            .unwrap();
+        shared_store.players().store(pl).unwrap();
 
         let resp = block_on(delete_card(
             web::Path::from((pl_id, card_id)),
@@ -604,7 +601,7 @@ mod tests {
 
         let (pl_id, mut pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
-        let inv = Inventory::empty(pl_id);
+        let inv = Inventory::empty();
         pl.set_component(inv).unwrap();
 
         let resp = block_on(delete_card(
@@ -641,15 +638,12 @@ mod tests {
 
         let (src_pl_id, mut src_pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let mut src_inv = Inventory::empty(src_pl_id);
+        let mut src_inv = Inventory::empty();
         src_inv.insert(card);
 
         assert_eq!(src_inv.len(), 1);
         src_pl.set_component(src_inv).unwrap();
-        shared_store
-            .players()
-            .store(src_pl_id, src_pl, arc_pl_cm.clone())
-            .unwrap();
+        shared_store.players().store(src_pl).unwrap();
 
         let (dest_pl_id, _dest_pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
@@ -711,7 +705,7 @@ mod tests {
 
         let (src_pl_id, mut src_pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
-        let mut src_inv = Inventory::empty(src_pl_id);
+        let mut src_inv = Inventory::empty();
         src_inv.insert(card);
         assert_eq!(src_inv.len(), 1);
 

@@ -1,3 +1,6 @@
+//! Storage systems that work entirely in-memory, for testing and prototyping
+//! use.
+
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::{Arc, RwLock};
@@ -11,6 +14,10 @@ use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 use crate::util::Result;
 
+/// A convenient container for `Player` and `Card` storage in-memory.
+///
+/// This is mainly meant for use in testing and for prototyping. It has
+/// no provisions for storing data to a persistent medium.
 pub struct SharedLocalStore {
     backend: Arc<LocalStoreBackend>,
     players: Store<Player, LocalStoreBackend>,
@@ -58,6 +65,7 @@ impl SharedStore<Card, LocalStoreBackend> for SharedLocalStore {
     }
 }
 
+/// In-memory storage backend for `Player`s, `Card`s, and `Inventories`.
 pub struct LocalStoreBackend {
     players: RwLock<HashMap<Snowflake, Player>>,
     cards: RwLock<HashMap<Snowflake, Card>>,
@@ -65,7 +73,7 @@ pub struct LocalStoreBackend {
 }
 
 impl LocalStoreBackend {
-    pub fn new() -> LocalStoreBackend {
+    fn new() -> LocalStoreBackend {
         LocalStoreBackend {
             players: RwLock::new(HashMap::new()),
             cards: RwLock::new(HashMap::new()),
@@ -171,6 +179,7 @@ impl StoreBackend<Card> for LocalStoreBackend {
     }
 }
 
+/// A storage backend for `Inventories` that uses a `LocalStoreBackend`.
 pub struct LocalInventoryStore {
     backend: Arc<LocalStoreBackend>,
 }
@@ -190,7 +199,7 @@ impl ComponentStore<Player, Inventory> for LocalInventoryStore {
     fn load(&self, player: &Player) -> Result<Option<Inventory>> {
         let map = self.backend.inventories.read().unwrap();
         Ok(map.get(&player.id()).map(|card_vec| {
-            let mut inv = Inventory::empty(player.id());
+            let mut inv = Inventory::empty();
             let cards = self.backend.cards.read().unwrap();
 
             for card_id in card_vec.iter() {
@@ -238,6 +247,10 @@ impl ComponentStore<Player, Inventory> for LocalInventoryStore {
     }
 }
 
+/// In-memory `Component` storage backend.
+///
+/// This is mainly meant for use in testing and for prototyping. It has
+/// no provisions for storing data to a persistent medium.
 pub struct LocalComponentStorage<T, U>
 where
     T: Entity + 'static,
@@ -328,17 +341,17 @@ mod tests {
 
             let mut snowflake_gen = SnowflakeGenerator::new(0, 1);
 
-            let pl = Player::empty(&mut snowflake_gen, pl_cm.clone());
+            let pl = Player::empty(&mut snowflake_gen, pl_cm);
             let pl_id = pl.id().clone();
 
             let players = store.players();
             let cards = store.cards();
 
-            let card = Card::generate(&mut snowflake_gen, card_cm.clone());
+            let card = Card::generate(&mut snowflake_gen, card_cm);
             let card_id = card.id().clone();
 
-            players.store(pl_id, pl, pl_cm).unwrap();
-            cards.store(card_id, card, card_cm).unwrap();
+            players.store(pl).unwrap();
+            cards.store(card).unwrap();
 
             (pl_id, card_id)
         });

@@ -1,3 +1,5 @@
+//! Akashi's Entity-Component-System architecture.
+
 pub mod component;
 pub mod component_store;
 pub mod entity;

@@ -294,7 +294,7 @@ mod tests {
         let id = pl.id();
         let model = PlayerModel::new(&pl).unwrap();
 
-        players.store(id, pl, cm.clone().into_inner()).unwrap();
+        players.store(pl).unwrap();
 
         let resp = block_on(get_player(
             web::Path::from((id,)),
@@ -332,9 +332,7 @@ mod tests {
         let rsc_a: ResourceA = 25.into();
         pl.set_component(rsc_a).unwrap();
 
-        players
-            .store(id, pl.clone(), cm.clone().into_inner())
-            .unwrap();
+        players.store(pl.clone()).unwrap();
 
         assert_eq!(players.keys(0, 20).unwrap().len(), 1);
 
@@ -372,7 +370,7 @@ mod tests {
 
         let players = shared_store.players();
         let id = pl.id();
-        players.store(id, pl, acm.clone()).unwrap();
+        players.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
@@ -408,7 +406,7 @@ mod tests {
 
         let players = shared_store.players();
         let id = pl.id();
-        players.store(id, pl.clone(), acm.clone()).unwrap();
+        players.store(pl.clone()).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
@@ -444,7 +442,7 @@ mod tests {
 
         let players = shared_store.players();
         let id = pl.id();
-        players.store(id, pl, acm.clone()).unwrap();
+        players.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
@@ -474,7 +472,7 @@ mod tests {
 
         let players = shared_store.players();
         let id = pl.id();
-        players.store(id, pl, acm.clone()).unwrap();
+        players.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
@@ -513,8 +511,8 @@ mod tests {
         let id_1 = pl_1.id();
         let id_2 = pl_2.id();
 
-        players.store(id_1, pl_1.clone(), acm.clone()).unwrap();
-        players.store(id_2, pl_2.clone(), acm.clone()).unwrap();
+        players.store(pl_1.clone()).unwrap();
+        players.store(pl_2.clone()).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
@@ -538,7 +536,7 @@ mod tests {
         }
 
         {
-            let wrapper = players.load(id_1, acm.clone()).unwrap();
+            let wrapper = players.load(id_1, acm).unwrap();
             let handle = wrapper.lock().unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
@@ -565,8 +563,8 @@ mod tests {
         let model_1 = PlayerModel::new(&pl_1).unwrap();
         let model_2 = PlayerModel::new(&pl_2).unwrap();
 
-        players.store(id_1, pl_1.clone(), acm.clone()).unwrap();
-        players.store(id_2, pl_2.clone(), acm.clone()).unwrap();
+        players.store(pl_1.clone()).unwrap();
+        players.store(pl_2.clone()).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
@@ -585,7 +583,7 @@ mod tests {
         }
 
         {
-            let wrapper = players.load(id_2, acm.clone()).unwrap();
+            let wrapper = players.load(id_2, acm).unwrap();
             let handle = wrapper.lock().unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
@@ -615,11 +613,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let players = shared_store.players();
-        let pl = Player::empty(&mut snowflake_gen, acm.clone());
-        let id = pl.id();
+        let pl = Player::empty(&mut snowflake_gen, acm);
         let model = PlayerModel::new(&pl).unwrap();
 
-        players.store(id, pl, acm.clone()).unwrap();
+        players.store(pl).unwrap();
 
         let resp = block_on(list_players(query, shared_store, cm)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);

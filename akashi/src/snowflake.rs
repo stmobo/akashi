@@ -1,6 +1,13 @@
+//! Unique 64-bit IDs.
+
 use std::thread;
 use std::time::{Duration, SystemTime};
 
+/// This type is used to represent unique IDs across Akashi.
+///
+/// Snowflake instances encode a timestamp, application-specific
+/// "group" and "worker" IDs, as well as a sequence number to disambiguate
+/// objects made in the same millisecond.
 pub type Snowflake = u64;
 
 pub const EPOCH_SECONDS: u64 = 1_544_832_000;
@@ -38,6 +45,7 @@ pub fn snowflake_group_id(s: Snowflake) -> u64 {
     (s >> GROUP_ID_SHIFT) & MAX_GROUP_ID
 }
 
+/// Generates `Snowflake` IDs.
 #[derive(Debug)]
 pub struct SnowflakeGenerator {
     epoch: SystemTime,
@@ -48,6 +56,11 @@ pub struct SnowflakeGenerator {
 }
 
 impl SnowflakeGenerator {
+    /// Creates a new `SnowflakeGenerator`.
+    ///
+    /// `SnowflakeGenerator` instances that are used concurrently
+    /// should be created with different group and/or worker IDs to
+    /// ensure that all generated IDs are unique.
     pub fn new(group_id: u64, worker_id: u64) -> SnowflakeGenerator {
         assert!(group_id <= MAX_GROUP_ID, "Invalid group ID");
         assert!(worker_id <= MAX_WORKER_ID, "Invalid worker ID");
@@ -68,6 +81,10 @@ impl SnowflakeGenerator {
         }
     }
 
+    /// Generates a new `Snowflake` ID.
+    ///
+    /// This might cause the current thread to sleep in the rare event
+    /// that the system clock goes backwards.
     pub fn generate(&mut self) -> Snowflake {
         let cur_timestamp = self.get_current_timestamp();
         if self.last_timestamp > cur_timestamp {

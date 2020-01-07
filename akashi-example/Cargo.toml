@@ -14,3 +14,9 @@ failure = "0.1"
 actix-web = "2.0"
 actix-rt = "1.0"
 futures = "0.3"
+
+[[bin]]
+name = "akashi-example"
+path = "src/main.rs"
+
+doc = false

@@ -1,8 +1,10 @@
-use std::cell::RefCell;
+//! Akashi's storage system for `Entities`.
+
+use std::cell::Cell;
 use std::sync::{Arc, Mutex, Weak};
 
 use chashmap::CHashMap;
-use failure::{err_msg, Fail};
+use failure::err_msg;
 
 use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
@@ -11,6 +13,8 @@ use crate::util::Result;
 type StrongLockedRef<T> = Arc<Mutex<T>>;
 type WeakLockedRef<T> = Weak<Mutex<T>>;
 
+/// This is a trait for wrapping up objects that contain stores for
+/// multiple types of `Entity`.
 pub trait SharedStore<T, U>
 where
     T: Entity + 'static,
@@ -19,6 +23,13 @@ where
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
 
+/// A shared handle to an `Entity`.
+///
+/// # Errors
+///
+/// Most of the methods associated with `StoreHandle` call methods on
+/// storage backend objects. Errors returned by these methods will bubble up
+/// through `StoreHandle`'s methods.
 pub struct StoreHandle<T, U>
 where
     T: Entity + 'static,
@@ -27,6 +38,7 @@ where
     backend: Arc<U>,
     id: Snowflake,
     object: Option<T>,
+    initialized: bool,
 }
 
 impl<T, U> StoreHandle<T, U>
@@ -34,51 +46,91 @@ where
     T: Entity + 'static,
     U: StoreBackend<T>,
 {
-    pub fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
+    fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
         StoreHandle {
             backend,
             id,
             object,
+            initialized: false,
         }
     }
 
+    /// Gets a reference to the object within this handle.
     pub fn get(&self) -> Option<&T> {
+        assert!(self.initialized);
         self.object.as_ref()
     }
 
+    /// Gets a mutable reference to the object within this handle.
     pub fn get_mut(&mut self) -> Option<&mut T> {
+        assert!(self.initialized);
         self.object.as_mut()
     }
 
-    pub fn replace(&mut self, object: T) {
-        self.object = Some(object);
+    /// Replaces the object within this handle with something else.
+    pub fn replace(&mut self, object: T) -> Option<T> {
+        let prev_object = self.object.replace(object);
+        let prev_initialized = self.initialized;
+        self.initialized = true;
+
+        if prev_initialized {
+            prev_object
+        } else {
+            None
+        }
     }
 
-    pub fn id(&self) -> &Snowflake {
-        &self.id
+    /// Gets the ID of the `Entity` in this handle.
+    pub fn id(&self) -> Snowflake {
+        self.id
     }
 
+    /// Checks whether anything is actually contained in this handle.
     pub fn exists(&self) -> bool {
+        assert!(self.initialized);
         self.object.is_some()
     }
 
+    /// Puts whatever is in this handle into storage.
     pub fn store(&self) -> Result<()> {
+        assert!(self.initialized);
+
         match &self.object {
             None => self.backend.delete(self.id),
             Some(obj) => self.backend.store(self.id, &obj),
         }
     }
 
+    /// Clears out the data in this handle, then deletes the `Entity`
+    /// from storage.
     pub fn delete(&mut self) -> Result<()> {
         if let Some(obj) = &mut self.object {
             obj.clear_components()?;
         }
 
         self.object = None;
+        self.initialized = true;
         self.backend.delete(self.id)
+    }
+
+    fn set_object(&mut self, object: Option<T>) {
+        self.object = object;
+        self.initialized = true;
+    }
+
+    fn initialized(&self) -> bool {
+        self.initialized
     }
 }
 
+/// Handles storing `Entities` and coordinating access to them across
+/// multiple threads.
+///
+/// # Errors
+///
+/// Most of the methods associated with `Store` call methods on storage
+/// backend objects. Errors returned by these methods will bubble up
+/// through `Store`'s methods.
 pub struct Store<T, U>
 where
     T: Entity + 'static,
@@ -93,6 +145,7 @@ where
     T: Entity + 'static,
     U: StoreBackend<T>,
 {
+    /// Creates a new `Store` using the given storage backend.
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
@@ -100,92 +153,127 @@ where
         }
     }
 
-    pub fn load(
-        &self,
-        id: Snowflake,
-        cm: Arc<ComponentManager<T>>,
-    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let cell: RefCell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
-            RefCell::new(Err(err_msg("unknown load error")));
+    /// Retrieves or creates a possibly-uninitialized StoreHandle from
+    /// the underlying hashmap.
+    fn get_handle(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
+        let ret_cell: Cell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
+            Cell::new(Err(err_msg("unknown load error")));
 
+        // All of this needs to be done with a write lock on the bucket
+        // for this hashmap entry.
         self.refs.alter(id, |val| {
             // If a previously-left weak pointer is still around, use that.
             if let Some(weak) = val.clone() {
                 if let Some(strong) = weak.upgrade() {
                     // use _e here so that the compiler stops complaining
                     // about us not using a Result
-                    let _e = cell.replace(Ok(strong.clone()));
+                    let _e = ret_cell.replace(Ok(strong.clone()));
                     return Some(weak);
                 }
             }
 
-            // Otherwise, try to load handle data from the backend.
-            match self.backend.load(id, cm) {
-                Ok(data) => {
-                    // Okay, got good handle data.
-                    // Make a new handle, then make pointers to return and
-                    // to store.
-                    let handle: StoreHandle<T, U> =
-                        StoreHandle::new(self.backend.clone(), id, data);
-                    let ret = Arc::new(Mutex::new(handle));
-                    let weak = Arc::downgrade(&ret);
+            // Create a new handle and store it into the hashmap.
+            // This handle starts uninitialized.
+            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
+            let ret = Arc::new(Mutex::new(handle));
+            let weak = Arc::downgrade(&ret);
 
-                    let _e = cell.replace(Ok(ret));
-                    Some(weak)
-                }
-                Err(e) => {
-                    // Error loading handle data.
-                    // Just store an error message in the Cell and keep
-                    // the data in the hashmap the same.
-                    let _e = cell.replace(Err(e));
-                    val
-                }
-            }
+            let _e = ret_cell.replace(Ok(ret));
+            Some(weak)
         });
 
-        cell.into_inner()
+        ret_cell.into_inner()
     }
 
-    pub fn store(&self, id: Snowflake, object: T, cm: Arc<ComponentManager<T>>) -> Result<()> {
-        let wrapper = self.load(id, cm)?;
-        let mut handle = wrapper.lock().expect("wrapper lock poisoned");
-        handle.replace(object);
+    /// Loads the `Entity` with the given ID from storage, or get a
+    /// handle to the `Entity` if it's already been loaded by another
+    /// thread.
+    pub fn load(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
+        let wrapper = self.get_handle(id)?;
+        {
+            let mut handle = wrapper
+                .lock()
+                .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+
+            if !handle.initialized() {
+                handle.set_object(self.backend.load(id, cm)?);
+            }
+        }
+
+        Ok(wrapper)
+    }
+
+    /// Puts the given `Entity` into storage, overwriting any previously
+    /// stored `Entity` data with the same ID.
+    pub fn store(&self, object: T) -> Result<()> {
+        let id = object.id();
+        let wrapper = self.get_handle(id)?;
+        let mut handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+
+        handle.set_object(Some(object));
         handle.store()
     }
 
+    /// Deletes the `Entity` with the given ID from storage.
+    ///
+    /// Note that internally, this method loads the `Entity` prior to
+    /// deleting it, so that attached `Component`s are properly deleted.
+    ///
+    /// If you already have an open handle to the `Entity`, you should
+    /// use `StoreHandle::delete()` instead.
     pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
         let wrapper = self.load(id, cm)?;
         let mut handle = wrapper.lock().expect("wrapper lock poisoned");
         handle.delete()
     }
 
+    /// Checks to see if an `Entity` with the given ID exists.
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
-        self.backend.exists(id)
+        let wrapper = self.get_handle(id)?;
+        let handle = wrapper
+            .lock()
+            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+
+        if handle.initialized() {
+            Ok(handle.exists())
+        } else {
+            self.backend.exists(id)
+        }
     }
 
+    /// Retrieves a list of `Entity` IDs from storage.
     pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
         self.backend.keys(page, limit)
     }
 }
 
+/// This trait is used to mark backing storage objects for `Entities`.
+///
+/// Structs that implement this trait can be used as backing storage
+/// for `Entities` such as `Player`s and `Cards`, and can be passed to
+/// `Store::new`.
 pub trait StoreBackend<T: Entity + 'static> {
+    /// Loads data for an `Entity` from storage, if any `Entity` with
+    /// the given ID exists.
     fn load(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<Option<T>>;
+
+    /// Checks to see if an `Entity` with the given ID exists in storage.
     fn exists(&self, id: Snowflake) -> Result<bool>;
+
+    /// Saves data for an `Entity` to storage.
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
+
+    /// Deletes data for an `Entity` from storage.
     fn delete(&self, id: Snowflake) -> Result<()>;
+
+    /// Retrieve a list of `Entity` IDs from storage.
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
-}
-
-#[derive(Fail, Debug, Clone)]
-#[fail(display = "could not find object {}", id)]
-pub struct NotFoundError {
-    id: Snowflake,
-}
-
-impl NotFoundError {
-    pub fn new(id: Snowflake) -> NotFoundError {
-        NotFoundError { id }
-    }
 }
 
 #[cfg(test)]
