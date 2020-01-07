@@ -33,6 +33,10 @@ impl<T: Entity + 'static> ComponentManager<T> {
             .insert(TypeId::of::<U>(), ComponentTypeData::new(store));
     }
 
+    pub fn is_registered<U: Component<T> + 'static>(&self) -> bool {
+        self.component_types.contains_key(&TypeId::of::<U>())
+    }
+
     pub fn set_component<U: Component<T> + 'static>(&self, entity: &T, component: U) -> Result<()> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.store)(entity, Box::new(component))
@@ -75,6 +79,17 @@ impl<T: Entity + 'static> ComponentManager<T> {
         }
     }
 
+    pub fn delete_component_by_id(&self, entity: &T, type_id: &TypeId) -> Result<()> {
+        if let Some(data) = self.component_types.get(&type_id) {
+            (data.delete)(entity)
+        } else {
+            Err(TypeNotFoundError {
+                component_name: format!("{:?}", type_id),
+            }
+            .into())
+        }
+    }
+
     pub fn component_exists<U: Component<T> + 'static>(&self, entity: &T) -> Result<bool> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.exists)(entity)
@@ -94,4 +109,10 @@ impl<T: Entity + 'static> ComponentManager<T> {
 )]
 pub struct TypeNotFoundError {
     component_name: String,
+}
+
+impl TypeNotFoundError {
+    pub fn new(component_name: String) -> TypeNotFoundError {
+        TypeNotFoundError { component_name }
+    }
 }

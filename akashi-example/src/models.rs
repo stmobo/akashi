@@ -1,6 +1,7 @@
 // Data models used in the API exposed by this example game.
 use failure::Error;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use akashi::{Card, Component, ComponentManager, Entity, Inventory, Player, Resource, Snowflake};
@@ -107,7 +108,7 @@ impl CardModel {
     }
 
     pub fn as_card(self, cm: Arc<ComponentManager<Card>>) -> Result<Card, Error> {
-        let mut card = Card::new(self.id, cm);
+        let mut card = Card::new(self.id, cm, HashSet::new());
         let name = CardName(self.name);
         let value = CardValue(self.value);
 

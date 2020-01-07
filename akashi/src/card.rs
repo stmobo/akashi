@@ -1,22 +1,27 @@
-use std::collections::HashMap;
+use std::any::TypeId;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::ecs::{Component, ComponentManager, Entity};
 use crate::player::Player;
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
-use crate::util::Result;
-
 #[derive(Clone, Debug)]
 pub struct Card {
     id: Snowflake,
     component_manager: Arc<ComponentManager<Card>>,
+    components_attached: HashSet<TypeId>,
 }
 
 impl Card {
-    pub fn new(id: Snowflake, component_manager: Arc<ComponentManager<Card>>) -> Card {
+    pub fn new(
+        id: Snowflake,
+        component_manager: Arc<ComponentManager<Card>>,
+        components_attached: HashSet<TypeId>,
+    ) -> Card {
         Card {
             id,
             component_manager,
+            components_attached,
         }
     }
 
@@ -27,6 +32,7 @@ impl Card {
         Card {
             id: snowflake_gen.generate(),
             component_manager,
+            components_attached: HashSet::new(),
         }
     }
 
@@ -36,6 +42,10 @@ impl Card {
 
     pub fn component_manager(&self) -> &ComponentManager<Card> {
         &self.component_manager
+    }
+
+    pub fn components_attached(&self) -> &HashSet<TypeId> {
+        &self.components_attached
     }
 }
 
@@ -51,27 +61,15 @@ impl Entity for Card {
     }
 
     fn component_manager(&self) -> &ComponentManager<Card> {
-        self.component_manager()
+        &self.component_manager
     }
 
-    fn get_component<T: Component<Card> + 'static>(&self) -> Result<Option<T>> {
-        let cm = self.component_manager();
-        cm.get_component::<T>(&self)
+    fn components_attached(&self) -> &HashSet<TypeId> {
+        &self.components_attached
     }
 
-    fn set_component<T: Component<Card> + 'static>(&mut self, component: T) -> Result<()> {
-        let cm = self.component_manager();
-        cm.set_component::<T>(&self, component)
-    }
-
-    fn has_component<T: Component<Card> + 'static>(&self) -> Result<bool> {
-        let cm = self.component_manager();
-        cm.component_exists::<T>(&self)
-    }
-
-    fn delete_component<T: Component<Card> + 'static>(&mut self) -> Result<()> {
-        let cm = self.component_manager();
-        cm.delete_component::<T>(&self)
+    fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
+        &mut self.components_attached
     }
 }
 

@@ -142,11 +142,15 @@ where
                     .map_err(|e| BadTransactionError::new(e.to_string()))?;
 
                 other_pl.set_component(other_rsc_a)?;
+                other_handle.store()?;
             }
         };
 
         pl.set_component(rsc_a)?;
-        PlayerModel::new(pl)
+        let ret = PlayerModel::new(pl);
+        handle.store()?;
+
+        ret
     })
     .await
     .map_err(utils::convert_blocking_err)?;
@@ -322,8 +326,12 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let players = shared_store.players();
-        let pl = Player::empty(&mut snowflake_gen, cm.clone().into_inner());
+        let mut pl = Player::empty(&mut snowflake_gen, cm.clone().into_inner());
         let id = pl.id();
+
+        let rsc_a: ResourceA = 25.into();
+        pl.set_component(rsc_a).unwrap();
+
         players
             .store(id, pl.clone(), cm.clone().into_inner())
             .unwrap();
@@ -333,11 +341,14 @@ mod tests {
         let resp = block_on(delete_player(
             web::Path::from((id,)),
             shared_store.clone(),
-            cm,
+            cm.clone(),
         ))
         .unwrap();
         assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
         assert_eq!(shared_store.players().keys(0, 20).unwrap().len(), 0);
+
+        let rsc_a: Option<ResourceA> = cm.get_component(&pl).unwrap();
+        assert!(rsc_a.is_none());
     }
 
     #[test]

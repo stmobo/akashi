@@ -132,6 +132,7 @@ where
         inv.insert(new_card);
 
         player.set_component(inv)?;
+        handle.store()?;
 
         Ok(model)
     })
@@ -274,6 +275,8 @@ where
         dest_player.set_component(dest_inv)?;
         src_player.set_component(src_inv)?;
 
+        dest_handle.store()?;
+
         Ok(())
     })
     .await
@@ -330,10 +333,7 @@ mod tests {
 
         let (pl_id, mut pl) =
             utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
-        let mut inv: Inventory = pl
-            .get_component()
-            .unwrap()
-            .unwrap_or_else(|| Inventory::empty(pl.id()));
+        let mut inv: Inventory = Inventory::empty(pl.id());
 
         let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
         card.set_component(CardName::new("foo".to_owned())).unwrap();
@@ -344,6 +344,7 @@ mod tests {
 
         inv.insert(card);
         pl.set_component(inv).unwrap();
+        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
 
         let resp = block_on(get_inventory(
             web::Path::from((pl_id,)),
@@ -383,8 +384,8 @@ mod tests {
         let arc_card_cm = card_cm.clone().into_inner();
         let sg = snowflake_generator(0, 0);
 
-        let (pl_id, pl) =
-            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm);
+        let (pl_id, _pl) =
+            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm.clone());
         let card_store = shared_store.cards();
 
         let resp = block_on(add_to_inventory(
@@ -404,6 +405,10 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: Vec<CardModel> = get_body_json(&resp);
+
+        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let pl = handle.get().unwrap();
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
         let expected: Vec<CardModel> = inv
@@ -435,8 +440,8 @@ mod tests {
 
         let sg = snowflake_generator(0, 0);
 
-        let (pl_id, pl) =
-            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm);
+        let (pl_id, _pl) =
+            utils::create_new_player(&shared_store, &mut sg.lock().unwrap(), arc_pl_cm.clone());
 
         let model = CardModel {
             id: sg.lock().unwrap().generate(),
@@ -458,6 +463,11 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: Vec<CardModel> = get_body_json(&resp);
+
+        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let pl = handle.get().unwrap();
+
         let inv: Inventory = pl.get_component().unwrap().unwrap();
         let stored_inv: Vec<CardModel> = inv
             .iter()
@@ -492,6 +502,7 @@ mod tests {
         inv.insert(card);
 
         pl.set_component(inv).unwrap();
+        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
 
         let resp = block_on(get_card(
             web::Path::from((pl_id, card_id)),
@@ -514,9 +525,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
         let inv = Inventory::empty(pl_id);
         pl.set_component(inv).unwrap();
+        shared_store.players().store(pl_id, pl, arc_pl_cm).unwrap();
 
         let resp = block_on(get_card(
             web::Path::from((snowflake_gen.generate(), snowflake_gen.generate())),
@@ -543,10 +555,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
         let (pl_id, mut pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
         let mut inv = Inventory::empty(pl_id);
 
-        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm);
+        let mut card = Card::generate(&mut snowflake_gen, arc_card_cm.clone());
         card.set_component(CardName::new("foobar".to_owned()))
             .unwrap();
         card.set_component(CardValue::new(333.0)).unwrap();
@@ -558,6 +570,10 @@ mod tests {
         assert_eq!(inv.len(), 1);
 
         pl.set_component(inv).unwrap();
+        shared_store
+            .players()
+            .store(pl_id, pl, arc_pl_cm.clone())
+            .unwrap();
 
         let resp = block_on(delete_card(
             web::Path::from((pl_id, card_id)),
@@ -569,6 +585,10 @@ mod tests {
 
         let body: CardModel = get_body_json(&resp);
         assert_eq!(body, expected);
+
+        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
+        let handle = wrapper.lock().unwrap();
+        let pl = handle.get().unwrap();
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
         assert_eq!(inv.len(), 0);
@@ -626,9 +646,13 @@ mod tests {
 
         assert_eq!(src_inv.len(), 1);
         src_pl.set_component(src_inv).unwrap();
+        shared_store
+            .players()
+            .store(src_pl_id, src_pl, arc_pl_cm.clone())
+            .unwrap();
 
-        let (dest_pl_id, dest_pl) =
-            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm);
+        let (dest_pl_id, _dest_pl) =
+            utils::create_new_player(&shared_store, &mut snowflake_gen, arc_pl_cm.clone());
 
         let query_str = format!("to={}", dest_pl_id);
         let query = web::Query::<CardMoveOptions>::from_query(query_str.as_str()).unwrap();
@@ -642,6 +666,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
+
+        let src_wrapper = shared_store
+            .players()
+            .load(src_pl_id, arc_pl_cm.clone())
+            .unwrap();
+        let src_handle = src_wrapper.lock().unwrap();
+        let src_pl = src_handle.get().unwrap();
+
+        let dest_wrapper = shared_store
+            .players()
+            .load(dest_pl_id, arc_pl_cm.clone())
+            .unwrap();
+        let dest_handle = dest_wrapper.lock().unwrap();
+        let dest_pl = dest_handle.get().unwrap();
 
         let src_inv: Inventory = src_pl.get_component().unwrap().unwrap();
         let dest_inv: Inventory = dest_pl.get_component().unwrap().unwrap();

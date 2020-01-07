@@ -8,6 +8,7 @@ pub use entity::Entity;
 
 pub use component::TypeNotFoundError;
 pub use component_store::DowncastError;
+pub use entity::ClearComponentsError;
 
 #[cfg(test)]
 mod tests {
@@ -74,7 +75,7 @@ mod tests {
         expect_err::<TypeNotFoundError, ()>(
             card.set_component::<TestComponentB>(TestComponentB(5)),
         );
-        expect_err::<TypeNotFoundError, bool>(card.has_component::<TestComponentB>());
+        assert!(!card.has_component::<TestComponentB>());
         expect_err::<TypeNotFoundError, ()>(card.delete_component::<TestComponentB>());
     }
 
@@ -115,13 +116,13 @@ mod tests {
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         // Component hasn't been added yet.
-        assert!(!card.has_component::<TestComponentA>().unwrap());
+        assert!(!card.has_component::<TestComponentA>());
 
         // Now add it.
         card.set_component(TestComponentA(5)).unwrap();
 
         // Now it should exist.
-        assert!(card.has_component::<TestComponentA>().unwrap());
+        assert!(card.has_component::<TestComponentA>());
     }
 
     #[test]
@@ -133,15 +134,15 @@ mod tests {
         let mut card = Card::generate(&mut snowflake_gen, Arc::new(cm));
 
         // Deletion of nonexistent Components shouldn't fail.
-        assert!(!card.has_component::<TestComponentA>().unwrap());
+        assert!(!card.has_component::<TestComponentA>());
         assert!(card.delete_component::<TestComponentA>().is_ok());
 
         // Add a new component.
         card.set_component(TestComponentA(5)).unwrap();
-        assert!(card.has_component::<TestComponentA>().unwrap());
+        assert!(card.has_component::<TestComponentA>());
 
         // Now delete it.
         card.delete_component::<TestComponentA>().unwrap();
-        assert!(!card.has_component::<TestComponentA>().unwrap());
+        assert!(!card.has_component::<TestComponentA>());
     }
 }

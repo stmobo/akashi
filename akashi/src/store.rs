@@ -70,6 +70,10 @@ where
     }
 
     pub fn delete(&mut self) -> Result<()> {
+        if let Some(obj) = &mut self.object {
+            obj.clear_components()?;
+        }
+
         self.object = None;
         self.backend.delete(self.id)
     }
@@ -188,11 +192,11 @@ impl NotFoundError {
 mod tests {
     use super::*;
 
-    use std::collections::HashMap;
+    use std::any::TypeId;
+    use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, RwLock};
     use std::thread;
 
-    use crate::ecs::Component;
     use crate::snowflake::SnowflakeGenerator;
 
     #[derive(Clone)]
@@ -201,6 +205,7 @@ mod tests {
         field_a: String,
         field_b: u64,
         cm: Arc<ComponentManager<MockStoredData>>,
+        components_attached: HashSet<TypeId>,
     }
 
     impl Entity for MockStoredData {
@@ -212,23 +217,12 @@ mod tests {
             &self.cm
         }
 
-        fn get_component<T: Component<MockStoredData> + 'static>(&self) -> Result<Option<T>> {
-            self.cm.get_component::<T>(&self)
+        fn components_attached(&self) -> &HashSet<TypeId> {
+            &self.components_attached
         }
 
-        fn set_component<T: Component<MockStoredData> + 'static>(
-            &mut self,
-            component: T,
-        ) -> Result<()> {
-            self.cm.set_component::<T>(&self, component)
-        }
-
-        fn has_component<T: Component<MockStoredData> + 'static>(&self) -> Result<bool> {
-            self.cm.component_exists::<T>(&self)
-        }
-
-        fn delete_component<T: Component<MockStoredData> + 'static>(&mut self) -> Result<()> {
-            self.cm.delete_component::<T>(&self)
+        fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
+            &mut self.components_attached
         }
     }
 
@@ -251,6 +245,7 @@ mod tests {
                 field_a,
                 field_b,
                 cm: Arc::new(ComponentManager::new()),
+                components_attached: HashSet::new(),
             }
         }
 
