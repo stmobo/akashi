@@ -1,5 +1,6 @@
 [package]
 name = "akashi"
+license = "MIT"
 version = "0.1.0"
 authors = ["Sebastian Mobo <stmobo@gmail.com>"]
 edition = "2018"
