@@ -4,6 +4,9 @@ license = "MIT"
 version = "0.1.0"
 authors = ["Sebastian Mobo <stmobo@gmail.com>"]
 edition = "2018"
+description = "A framework for building collectible card games and gacha games."
+homepage = "https://github.com/stmobo/akashi"
+repository = "https://github.com/stmobo/akashi"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
