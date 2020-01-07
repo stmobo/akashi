@@ -14,6 +14,10 @@
 
 #[macro_use]
 extern crate failure;
+
+#[macro_use]
+extern crate rental;
+
 extern crate chashmap;
 extern crate downcast_rs;
 extern crate failure_derive;

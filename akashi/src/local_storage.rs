@@ -363,12 +363,10 @@ mod tests {
         let players = store.players();
         let cards = store.cards();
 
-        let pl_ref = players.load(player_id, pl_cm.clone()).unwrap();
-        let pl_handle = pl_ref.lock().unwrap();
+        let pl_handle = players.load(player_id, pl_cm.clone()).unwrap();
         assert!(pl_handle.get().is_some());
 
-        let card_ref = cards.load(card_id, card_cm).unwrap();
-        let card_handle = card_ref.lock().unwrap();
+        let card_handle = cards.load(card_id, card_cm).unwrap();
         assert!(card_handle.get().is_some());
     }
 }

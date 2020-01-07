@@ -26,10 +26,7 @@ where
 
     let val = web::block(move || -> Result<Vec<CardModel>> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let wrapper = store.load(id, cm.into_inner())?;
-        let handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+        let handle = store.load(id, cm.into_inner())?;
 
         let pl_ref: &Player = handle.get().ok_or_else(|| utils::player_not_found(id))?;
         let inv: Option<Inventory> = pl_ref.get_component()?;
@@ -88,10 +85,8 @@ where
 
     let res = web::block(move || -> Result<Vec<CardModel>> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let wrapper = players.load(pl_id, pl_cm.clone())?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let mut handle = players.load(pl_id, pl_cm.clone())?;
+
         let player = handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(pl_id))?;
@@ -158,10 +153,7 @@ where
 
     let res: CardModel = web::block(move || -> Result<CardModel> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let wrapper = players.load(pl_id, cm)?;
-        let handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let handle = players.load(pl_id, cm)?;
         let player = handle.get().ok_or_else(|| utils::player_not_found(pl_id))?;
 
         let inv: Inventory = player
@@ -195,10 +187,7 @@ where
 
     let res: CardModel = web::block(move || -> Result<CardModel> {
         let players: &Store<Player, U> = shared_store.get_store();
-        let wrapper = players.load(pl_id, cm)?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let mut handle = players.load(pl_id, cm)?;
         let player = handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(pl_id))?;
@@ -244,10 +233,7 @@ where
     web::block(move || -> Result<()> {
         let players: &Store<Player, U> = shared_store.get_store();
 
-        let src_wrapper = players.load(src_player_id, cm.clone())?;
-        let mut src_handle = src_wrapper
-            .lock()
-            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let mut src_handle = players.load(src_player_id, cm.clone())?;
         let src_player = src_handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(src_player_id))?;
@@ -259,10 +245,7 @@ where
             .remove(card_id)
             .ok_or_else(|| utils::card_not_found(card_id))?;
 
-        let dest_wrapper = players.load(dest_player_id, cm.clone())?;
-        let mut dest_handle = dest_wrapper
-            .lock()
-            .map_err(|_e| format_err!("player handle lock poisoned"))?;
+        let mut dest_handle = players.load(dest_player_id, cm.clone())?;
         let dest_player = dest_handle
             .get_mut()
             .ok_or_else(|| utils::player_not_found(dest_player_id))?;
@@ -406,8 +389,7 @@ mod tests {
 
         let body: Vec<CardModel> = get_body_json(&resp);
 
-        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
-        let handle = wrapper.lock().unwrap();
+        let handle = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
         let pl = handle.get().unwrap();
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
@@ -424,8 +406,7 @@ mod tests {
         assert_eq!(card.name, "bar");
         assert_eq!(card.value, 13.0);
 
-        let wrapper = card_store.load(card.id, arc_card_cm).unwrap();
-        let handle = wrapper.lock().unwrap();
+        let handle = card_store.load(card.id, arc_card_cm).unwrap();
         let stored_card = CardModel::new(handle.get().unwrap()).unwrap();
 
         assert_eq!(*card, stored_card);
@@ -464,8 +445,7 @@ mod tests {
 
         let body: Vec<CardModel> = get_body_json(&resp);
 
-        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
-        let handle = wrapper.lock().unwrap();
+        let handle = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
         let pl = handle.get().unwrap();
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
@@ -583,8 +563,7 @@ mod tests {
         let body: CardModel = get_body_json(&resp);
         assert_eq!(body, expected);
 
-        let wrapper = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
-        let handle = wrapper.lock().unwrap();
+        let handle = shared_store.players().load(pl_id, arc_pl_cm).unwrap();
         let pl = handle.get().unwrap();
 
         let inv: Inventory = pl.get_component().unwrap().unwrap();
@@ -661,18 +640,16 @@ mod tests {
 
         assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
 
-        let src_wrapper = shared_store
+        let src_handle = shared_store
             .players()
             .load(src_pl_id, arc_pl_cm.clone())
             .unwrap();
-        let src_handle = src_wrapper.lock().unwrap();
         let src_pl = src_handle.get().unwrap();
 
-        let dest_wrapper = shared_store
+        let dest_handle = shared_store
             .players()
             .load(dest_pl_id, arc_pl_cm.clone())
             .unwrap();
-        let dest_handle = dest_wrapper.lock().unwrap();
         let dest_pl = dest_handle.get().unwrap();
 
         let src_inv: Inventory = src_pl.get_component().unwrap().unwrap();

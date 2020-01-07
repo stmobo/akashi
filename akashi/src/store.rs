@@ -1,7 +1,11 @@
 //! Akashi's storage system for `Entities`.
 
 use std::cell::Cell;
-use std::sync::{Arc, Mutex, Weak};
+use std::ops::Deref;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+
+extern crate stable_deref_trait;
+use stable_deref_trait::StableDeref;
 
 use chashmap::CHashMap;
 use failure::err_msg;
@@ -10,15 +14,47 @@ use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
 use crate::util::Result;
 
-type StrongLockedRef<T> = Arc<Mutex<T>>;
-type WeakLockedRef<T> = Weak<Mutex<T>>;
+type StrongSharedMutex<T> = Arc<Mutex<T>>;
+type WeakSharedMutex<T> = Weak<Mutex<T>>;
+
+rental! {
+    pub mod handle_ref {
+        //! A self-referential wrapper around an `Arc`ed `Mutex`.
+        use super::*;
+
+        /// A self-referential type that wraps `Arc<Mutex<StoreHandle>>` into
+        /// something more manageable.
+        ///
+        /// This struct contains both an `Arc<Mutex<StoreHandle>>` and
+        /// a `MutexGuard` for that same handle, hence why this requires
+        /// the `rental` crate.
+        ///
+        /// This type supports `Deref` and `DerefMut` to `StoreHandle`,
+        /// which is probably all you'll need to use.
+        #[rental(debug, clone, deref_mut_suffix, covariant, map_suffix = "T")]
+        pub struct HandleRef<H: StableDeref + Deref + 'static, T: 'static> {
+            head: H,
+            suffix: MutexGuard<'head, T>,
+        }
+    }
+}
+
+type StoreHandleReference<T> = handle_ref::HandleRef<Arc<Mutex<T>>, T>;
+
+/// Converts `Arc<Mutex<T>>` to a `HandleRef` by locking the inner `Mutex`.
+fn rent_arced_mutex<T: 'static>(head: Arc<Mutex<T>>) -> Result<StoreHandleReference<T>> {
+    handle_ref::HandleRef::try_new(head, |s| {
+        s.lock().map_err(|_e| err_msg("wrapper lock poisoned"))
+    })
+    .map_err(|e| e.0)
+}
 
 /// This is a trait for wrapping up objects that contain stores for
 /// multiple types of `Entity`.
 pub trait SharedStore<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T>,
+    U: StoreBackend<T> + 'static,
 {
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
@@ -33,7 +69,7 @@ where
 pub struct StoreHandle<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T>,
+    U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
     id: Snowflake,
@@ -44,7 +80,7 @@ where
 impl<T, U> StoreHandle<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T>,
+    U: StoreBackend<T> + 'static,
 {
     fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
         StoreHandle {
@@ -134,16 +170,16 @@ where
 pub struct Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T>,
+    U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, WeakLockedRef<StoreHandle<T, U>>>,
+    refs: CHashMap<Snowflake, WeakSharedMutex<StoreHandle<T, U>>>,
 }
 
 impl<T, U> Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T>,
+    U: StoreBackend<T> + 'static,
 {
     /// Creates a new `Store` using the given storage backend.
     pub fn new(backend: Arc<U>) -> Store<T, U> {
@@ -155,8 +191,8 @@ where
 
     /// Retrieves or creates a possibly-uninitialized StoreHandle from
     /// the underlying hashmap.
-    fn get_handle(&self, id: Snowflake) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
-        let ret_cell: Cell<Result<StrongLockedRef<StoreHandle<T, U>>>> =
+    fn get_handle(&self, id: Snowflake) -> Result<StrongSharedMutex<StoreHandle<T, U>>> {
+        let ret_cell: Cell<Result<StrongSharedMutex<StoreHandle<T, U>>>> =
             Cell::new(Err(err_msg("unknown load error")));
 
         // All of this needs to be done with a write lock on the bucket
@@ -188,23 +224,23 @@ where
     /// Loads the `Entity` with the given ID from storage, or get a
     /// handle to the `Entity` if it's already been loaded by another
     /// thread.
+    ///
+    /// This not only loads a handle to the `Entity` from the store,
+    /// but also locks it for you. As such, the return type of this
+    /// function is a smart reference to the loaded `StoreHandle`.
     pub fn load(
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<StrongLockedRef<StoreHandle<T, U>>> {
+    ) -> Result<StoreHandleReference<StoreHandle<T, U>>> {
         let wrapper = self.get_handle(id)?;
-        {
-            let mut handle = wrapper
-                .lock()
-                .map_err(|_e| format_err!("wrapper lock poisoned"))?;
+        let mut handle = rent_arced_mutex(wrapper)?;
 
-            if !handle.initialized() {
-                handle.set_object(self.backend.load(id, cm)?);
-            }
+        if !handle.initialized() {
+            handle.set_object(self.backend.load(id, cm)?);
         }
 
-        Ok(wrapper)
+        Ok(handle)
     }
 
     /// Puts the given `Entity` into storage, overwriting any previously
@@ -228,8 +264,7 @@ where
     /// If you already have an open handle to the `Entity`, you should
     /// use `StoreHandle::delete()` instead.
     pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
-        let wrapper = self.load(id, cm)?;
-        let mut handle = wrapper.lock().expect("wrapper lock poisoned");
+        let mut handle = self.load(id, cm)?;
         handle.delete()
     }
 
@@ -411,11 +446,10 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockStoreBackend::new());
         let store = MockStore::new(backend);
-        let result = store
+        let handle = store
             .load(snowflake_gen.generate(), Arc::new(ComponentManager::new()))
             .unwrap();
 
-        let handle = result.lock().unwrap();
         assert!(!handle.exists());
     }
 
@@ -428,10 +462,9 @@ mod tests {
         backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
 
-        let wrapper = store
+        let handle = store
             .load(*data.id(), Arc::new(ComponentManager::new()))
             .unwrap();
-        let handle = wrapper.lock().unwrap();
 
         assert!(handle.exists());
         let data_copy = handle.get().unwrap();
@@ -450,17 +483,13 @@ mod tests {
 
         backend.store(*data.id(), &data).unwrap();
         let store = Arc::new(MockStore::new(backend));
-
-        let cm = Arc::new(ComponentManager::new());
-        let cm2 = cm.clone();
-
         let store2 = store.clone();
         let handle = thread::spawn(move || {
-            let wrapper_1 = store2.load(id, cm2).unwrap();
+            let wrapper_1 = store2.get_handle(id).unwrap();
             wrapper_1
         });
 
-        let wrapper_2 = store.load(*data.id(), cm).unwrap();
+        let wrapper_2 = store.get_handle(*data.id()).unwrap();
         let wrapper_1 = handle.join().unwrap();
 
         // wrapper_1 and wrapper_2 should be Arcs pointing to the same
@@ -479,16 +508,14 @@ mod tests {
         let cm = Arc::new(ComponentManager::new());
 
         {
-            let wrapper = store.load(*data.id(), cm.clone()).unwrap();
-            let mut handle = wrapper.lock().unwrap();
+            let mut handle = store.load(*data.id(), cm.clone()).unwrap();
             assert!(!handle.exists());
 
             handle.replace(data.clone());
             handle.store().unwrap();
         }
 
-        let wrapper = store.load(*data.id(), cm).unwrap();
-        let handle = wrapper.lock().unwrap();
+        let handle = store.load(*data.id(), cm).unwrap();
         let data_copy = handle.get().unwrap();
 
         assert_eq!(*data_copy.id(), id);

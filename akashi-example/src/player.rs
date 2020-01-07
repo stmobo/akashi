@@ -29,8 +29,7 @@ where
         let vals: Vec<PlayerModel> = keys
             .iter()
             .filter_map(|key| -> Option<PlayerModel> {
-                let wrapper = store.load(*key, cm.clone()).ok()?;
-                let handle = wrapper.lock().ok()?;
+                let handle = store.load(*key, cm.clone()).ok()?;
 
                 handle.get().and_then(|pl| PlayerModel::new(pl).ok())
             })
@@ -58,10 +57,7 @@ where
 
     let r: PlayerModel = web::block(move || -> Result<PlayerModel, Error> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let wrapper = store.load(id, cm)?;
-        let handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let handle = store.load(id, cm)?;
 
         match handle.get() {
             None => Err(player_not_found(id)),
@@ -100,10 +96,7 @@ where
 
     let res = web::block(move || -> Result<PlayerModel, Error> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let wrapper = store.load(player_id, cm.clone())?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let mut handle = store.load(player_id, cm.clone())?;
         let pl = handle
             .get_mut()
             .ok_or_else(|| player_not_found(player_id))?;
@@ -123,10 +116,7 @@ where
                 .checked_set(val.into())
                 .map_err(|e| BadTransactionError::new(e.to_string()))?,
             Transaction::TransferFrom((from_pl_id, val)) => {
-                let other_wrapper = store.load(from_pl_id, cm.clone())?;
-                let mut other_handle = other_wrapper
-                    .lock()
-                    .map_err(|_e| format_err!("failed to lock wrapper"))?;
+                let mut other_handle = store.load(from_pl_id, cm.clone())?;
                 let other_pl = other_handle
                     .get_mut()
                     .ok_or_else(|| player_not_found(from_pl_id))?;
@@ -173,10 +163,7 @@ where
 
     web::block(move || -> Result<(), Error> {
         let store: &Store<Player, U> = shared_store.get_store();
-        let wrapper = store.load(id, cm)?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let mut handle = store.load(id, cm)?;
 
         if !handle.exists() {
             Err(player_not_found(id))
@@ -214,10 +201,7 @@ where
 
         let store: &Store<Player, U> = shared_store.get_store();
 
-        let wrapper = store.load(new_pl.id(), cm.clone())?;
-        let mut handle = wrapper
-            .lock()
-            .map_err(|_e| format_err!("failed to lock wrapper"))?;
+        let mut handle = store.load(new_pl.id(), cm.clone())?;
 
         handle.replace(new_pl);
         handle.store()?;
@@ -383,8 +367,7 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         {
-            let wrapper = players.load(id, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id, acm).unwrap();
 
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
@@ -418,8 +401,7 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         {
-            let wrapper = players.load(id, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id, acm).unwrap();
 
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
@@ -453,8 +435,7 @@ mod tests {
         let _e: BadTransactionError = utils::expect_error(resp);
 
         {
-            let wrapper = players.load(id, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id, acm).unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, expected_player);
@@ -484,8 +465,7 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         {
-            let wrapper = players.load(id, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id, acm).unwrap();
 
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
@@ -525,8 +505,7 @@ mod tests {
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         {
-            let wrapper = players.load(id_2, acm.clone()).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id_2, acm.clone()).unwrap();
 
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
@@ -536,8 +515,7 @@ mod tests {
         }
 
         {
-            let wrapper = players.load(id_1, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id_1, acm).unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl.resource_a, 60);
@@ -575,16 +553,14 @@ mod tests {
         let _e: BadTransactionError = utils::expect_error(resp);
 
         {
-            let wrapper = players.load(id_1, acm.clone()).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id_1, acm.clone()).unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, model_1);
         }
 
         {
-            let wrapper = players.load(id_2, acm).unwrap();
-            let handle = wrapper.lock().unwrap();
+            let handle = players.load(id_2, acm).unwrap();
             let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
 
             assert_eq!(stored_pl, model_2);
