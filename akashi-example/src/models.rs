@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use akashi::{Card, Component, ComponentManager, Entity, Inventory, Player, Resource, Snowflake};
+use akashi::components::{Inventory, Resource};
+use akashi::{Card, Component, ComponentManager, Entity, Player, Snowflake};
 
 #[derive(Debug, Clone)]
 pub struct ResourceA(pub Resource);

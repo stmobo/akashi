@@ -7,7 +7,8 @@ use std::sync::{Arc, RwLock};
 
 use failure::format_err;
 
-use crate::card::{Card, Inventory};
+use crate::card::Card;
+use crate::components::Inventory;
 use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
 use crate::player::Player;
 use crate::snowflake::Snowflake;

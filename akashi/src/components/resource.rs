@@ -47,7 +47,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(0, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(0, Some(0), Some(100));
     ///
     /// // 0 < 50 < 100: ok
     /// let result = rsc.checked_set(50.into());
@@ -84,7 +85,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(50, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(50, Some(0), Some(100));
     ///
     /// // -50 < 0: value capped to 0
     /// rsc.capped_set((-50).into());
@@ -121,7 +123,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(0, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(0, Some(0), Some(100));
     ///
     /// // 0 + 50 = 50, and 0 < 50 < 100, so this is okay.
     /// let result = rsc.checked_add(50.into());
@@ -150,7 +153,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(50, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(50, Some(0), Some(100));
     ///
     /// // 50 + 100 = 150.
     /// // Since 150 > 100, the cap is applied.
@@ -172,7 +176,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(100, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(100, Some(0), Some(100));
     ///
     /// // 100 - 50 = 50, and 0 < 50 < 100, so this is okay.
     /// let result = rsc.checked_sub(50.into());
@@ -201,7 +206,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(50, Some(0), Some(100));
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(50, Some(0), Some(100));
     ///
     /// // 50 - 100 = -25.
     /// // Since -25 < 0, the new value is capped to 0.
@@ -223,7 +229,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(500, None, None);
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(500, None, None);
     ///
     /// // 500 > 0: ok
     /// let result = rsc.soft_set_min(Some(0));
@@ -250,7 +257,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(500, None, None);
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(500, None, None);
     ///
     /// // 500 > 0: no change
     /// rsc.hard_set_min(Some(0));
@@ -279,7 +287,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(500, None, None);
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(500, None, None);
     ///
     /// // 500 < 1000: ok
     /// let result = rsc.soft_set_max(Some(1000));
@@ -306,7 +315,8 @@ impl Resource {
     /// # Examples
     ///
     /// ```
-    /// let mut rsc = akashi::Resource::new(500, None, None);
+    /// use akashi::components::Resource;
+    /// let mut rsc = Resource::new(500, None, None);
     ///
     /// // 500 < 1000: no change
     /// rsc.hard_set_max(Some(1000));

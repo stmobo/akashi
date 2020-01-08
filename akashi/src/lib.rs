@@ -32,7 +32,7 @@ pub mod store;
 mod util;
 
 #[doc(inline)]
-pub use card::{Card, Inventory};
+pub use card::Card;
 
 #[doc(inline)]
 pub use ecs::{Component, ComponentManager, ComponentStore, Entity};
@@ -41,10 +41,7 @@ pub use ecs::{Component, ComponentManager, ComponentStore, Entity};
 pub use player::Player;
 
 #[doc(inline)]
-pub use components::Resource;
-
-#[doc(inline)]
 pub use snowflake::{Snowflake, SnowflakeGenerator};
 
 #[doc(inline)]
-pub use store::{Store, StoreBackend, StoreHandle};
+pub use store::{EntityStore, Store, StoreBackend, StoreHandle};
