@@ -1,7 +1,7 @@
 use crate::card::Card;
 use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
-use crate::store::{EntityHandle, EntityStore, Store, StoreBackend, StoreReference};
+use crate::store::{EntityStore, ReadReference, Store, StoreBackend, StoreHandle, WriteReference};
 use crate::util::Result;
 
 use std::any::TypeId;
@@ -74,7 +74,7 @@ impl Entity for CardType {
 #[derive(Clone)]
 pub struct AttachedCardType {
     type_id: Snowflake,
-    store: Arc<dyn EntityStore<CardType> + Sync + Send>,
+    store: Arc<dyn EntityStore<CardType> + Sync + Send + 'static>,
     component_manager: Arc<ComponentManager<CardType>>,
 }
 
@@ -97,27 +97,29 @@ impl AttachedCardType {
         self.type_id
     }
 
-    /// Gets an immutable, read-locked reference to a StoreHandle for
-    /// the associated `CardType` entity.
-    pub fn load(&self) -> Result<StoreReference<dyn EntityHandle<CardType>>> {
+    /// Gets an immutable, read-locked reference to the actual
+    /// [`CardType`](CardType) entity referred to by this component
+    /// from storage.
+    pub fn load(&self) -> Result<ReadReference<StoreHandle<CardType>>> {
         self.store
             .load(self.type_id, self.component_manager.clone())
     }
 
-    // Gets a mutable, write-locked reference to a StoreHandle for the
-    // associated `CardType` entity.
-    //pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType, T>>> {
-    //    self.store
-    //        .load_mut(self.type_id, self.component_manager.clone())
-    //}
+    /// Gets a mutable, write-locked reference to the actual
+    /// [`CardType`](CardType) entity referred to by this component
+    /// from storage.
+    pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType>>> {
+        self.store
+            .load_mut(self.type_id, self.component_manager.clone())
+    }
 }
 
 impl Component<Card> for AttachedCardType {}
 
-/// Provides `ComponentStore` services for `AttachedCardType` objects
+/// Provides `ComponentStore` services for [`AttachedCardTypes`](AttachedCardType)
 /// by wrapping another `ComponentStore`.
 ///
-/// The wrapped storage object needs to implement loading and storing
+/// The wrapped storage type needs to implement loading and storing
 /// card type IDs via the `ComponentStore<Card, Snowflake>` trait.
 pub struct CardTypeLayer<T, U>
 where
@@ -134,7 +136,7 @@ where
     T: ComponentStore<Card, Snowflake> + 'static,
     U: StoreBackend<CardType> + 'static,
 {
-    /// Construct a new CardTypeLayer object.
+    /// Constructs a new `CardTypeLayer`.
     pub fn new(
         component_backend: T,
         entity_store: Arc<Store<CardType, U>>,
@@ -315,8 +317,7 @@ mod tests {
         assert_eq!(attached_type.type_id, type_id);
 
         // Attempt to load the type's attached MockTypeData.
-        let wrapper = attached_type.load().unwrap();
-        let handle = wrapper.read();
+        let handle = attached_type.load().unwrap();
         let card_type = handle.get().unwrap();
         let type_data: MockTypeData = card_type.get_component().unwrap().unwrap();
 

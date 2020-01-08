@@ -54,7 +54,7 @@ rental! {
 
 pub use handle_ref::{HandleReadRef, HandleWriteRef};
 
-pub type StoreReference<T> = Arc<RwLock<T>>;
+type StoreReference<T> = Arc<RwLock<T>>;
 type WeakStoreReference<T> = Weak<RwLock<T>>;
 pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
 pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
@@ -79,42 +79,31 @@ where
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
 
-pub trait EntityHandle<T>
-where
-    T: Entity + 'static,
-{
-    fn id(&self) -> Snowflake;
-    fn get(&self) -> Option<&T>;
-    fn get_mut(&mut self) -> Option<&mut T>;
-    fn exists(&self) -> bool;
-    fn store(&self) -> Result<()>;
-    fn delete(&mut self) -> Result<()>;
-}
-
-/// A shared handle to an `Entity`.
+/// A shared handle to an `Entity` and its storage backend.
 ///
 /// # Errors
 ///
 /// Most of the methods associated with `StoreHandle` call methods on
 /// storage backend objects. Errors returned by these methods will bubble up
 /// through `StoreHandle`'s methods.
-pub struct StoreHandle<T, U>
+pub struct StoreHandle<T>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
 {
-    backend: Arc<U>,
+    backend: Arc<dyn StoreBackend<T> + Sync + Send + 'static>,
     id: Snowflake,
     object: Option<T>,
     initialized: bool,
 }
 
-impl<T, U> StoreHandle<T, U>
+impl<T> StoreHandle<T>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
 {
-    fn new(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T, U> {
+    fn new<U>(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T>
+    where
+        U: StoreBackend<T> + Sync + Send + 'static,
+    {
         StoreHandle {
             backend,
             id,
@@ -191,31 +180,6 @@ where
     }
 }
 
-impl<T, U> EntityHandle<T> for StoreHandle<T, U>
-where
-    T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
-{
-    fn id(&self) -> Snowflake {
-        self.id()
-    }
-    fn get(&self) -> Option<&T> {
-        self.get()
-    }
-    fn get_mut(&mut self) -> Option<&mut T> {
-        self.get_mut()
-    }
-    fn exists(&self) -> bool {
-        self.exists()
-    }
-    fn store(&self) -> Result<()> {
-        self.store()
-    }
-    fn delete(&mut self) -> Result<()> {
-        self.delete()
-    }
-}
-
 /// Handles storing `Entities` and coordinating access to them across
 /// multiple threads.
 ///
@@ -230,13 +194,13 @@ where
     U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, WeakStoreReference<StoreHandle<T, U>>>,
+    refs: CHashMap<Snowflake, WeakStoreReference<StoreHandle<T>>>,
 }
 
 impl<T, U> Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
+    U: StoreBackend<T> + Sync + Send + 'static,
 {
     /// Creates a new `Store` using the given storage backend.
     pub fn new(backend: Arc<U>) -> Store<T, U> {
@@ -248,8 +212,8 @@ where
 
     /// Retrieves or creates a possibly-uninitialized StoreHandle from
     /// the underlying hashmap.
-    fn get_handle(&self, id: Snowflake) -> Result<StoreReference<StoreHandle<T, U>>> {
-        let ret_cell: Cell<Result<StoreReference<StoreHandle<T, U>>>> =
+    fn get_handle(&self, id: Snowflake) -> Result<StoreReference<StoreHandle<T>>> {
+        let ret_cell: Cell<Result<StoreReference<StoreHandle<T>>>> =
             Cell::new(Err(err_msg("unknown load error")));
 
         // All of this needs to be done with a write lock on the bucket
@@ -267,7 +231,7 @@ where
 
             // Create a new handle and store it into the hashmap.
             // This handle starts uninitialized.
-            let handle: StoreHandle<T, U> = StoreHandle::new(self.backend.clone(), id, None);
+            let handle: StoreHandle<T> = StoreHandle::new(self.backend.clone(), id, None);
             let ret = Arc::new(RwLock::new(handle));
             let weak = Arc::downgrade(&ret);
 
@@ -289,7 +253,7 @@ where
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<ReadReference<StoreHandle<T, U>>> {
+    ) -> Result<ReadReference<StoreHandle<T>>> {
         let wrapper = self.get_handle(id)?;
 
         {
@@ -314,7 +278,7 @@ where
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<WriteReference<StoreHandle<T, U>>> {
+    ) -> Result<WriteReference<StoreHandle<T>>> {
         let wrapper = self.get_handle(id)?;
         let mut handle = write_store_reference(wrapper);
 
@@ -366,6 +330,15 @@ where
     }
 }
 
+/// An interface for loading and storing [`Entities`](Entity).
+///
+/// This trait provides an abstract interface for loading and storing
+/// [`Entities`](Entity) objects.
+///
+/// For example, you can use it as a way to access [`Stores`](Store)
+/// without having to carry around a [`StoreBackend`](StoreBackend)
+/// type parameter everywhere. This comes at the cost of dynamic dispatch
+/// overhead, though.
 pub trait EntityStore<T>
 where
     T: Entity + 'static,
@@ -374,7 +347,14 @@ where
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<StoreReference<dyn EntityHandle<T>>>;
+    ) -> Result<ReadReference<StoreHandle<T>>>;
+
+    fn load_mut(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<WriteReference<StoreHandle<T>>>;
+
     fn store(&self, object: T) -> Result<()>;
     fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()>;
     fn exists(&self, id: Snowflake) -> Result<bool>;
@@ -384,31 +364,32 @@ where
 impl<T, U> EntityStore<T> for Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
+    U: StoreBackend<T> + Sync + Send + 'static,
 {
     fn load(
         &self,
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
-    ) -> Result<StoreReference<dyn EntityHandle<T>>> {
-        let wrapper = self.get_handle(id)?;
+    ) -> Result<ReadReference<StoreHandle<T>>> {
+        self.load(id, cm)
+    }
 
-        {
-            let mut write_handle = wrapper.write();
-            if !write_handle.initialized() {
-                write_handle.set_object(self.backend.load(id, cm)?);
-            }
-        }
-
-        Ok(wrapper)
+    fn load_mut(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<WriteReference<StoreHandle<T>>> {
+        self.load_mut(id, cm)
     }
 
     fn store(&self, object: T) -> Result<()> {
         self.store(object)
     }
+
     fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
         self.delete(id, cm)
     }
+
     fn exists(&self, id: Snowflake) -> Result<bool> {
         self.exists(id)
     }
