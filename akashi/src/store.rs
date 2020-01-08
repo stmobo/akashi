@@ -60,12 +60,12 @@ pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
 pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
 
 /// Converts `Arc<RwLock<T>>` to a `ReadReference` by taking the inner read lock.
-fn read_store_reference<T: 'static>(head: StoreReference<T>) -> ReadReference<T> {
+pub fn read_store_reference<T: 'static>(head: StoreReference<T>) -> ReadReference<T> {
     HandleReadRef::new(head, |s| s.read())
 }
 
 /// Converts `Arc<RwLock<T>>` to a `WriteReference` by locking the inner write lock.
-fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteReference<T> {
+pub fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteReference<T> {
     HandleWriteRef::new(head, |s| s.write())
 }
 
@@ -77,6 +77,18 @@ where
     U: StoreBackend<T> + 'static,
 {
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
+}
+
+pub trait EntityHandle<T>
+where
+    T: Entity + 'static,
+{
+    fn id(&self) -> Snowflake;
+    fn get(&self) -> Option<&T>;
+    fn get_mut(&mut self) -> Option<&mut T>;
+    fn exists(&self) -> bool;
+    fn store(&self) -> Result<()>;
+    fn delete(&mut self) -> Result<()>;
 }
 
 /// A shared handle to an `Entity`.
@@ -176,6 +188,31 @@ where
 
     fn initialized(&self) -> bool {
         self.initialized
+    }
+}
+
+impl<T, U> EntityHandle<T> for StoreHandle<T, U>
+where
+    T: Entity + 'static,
+    U: StoreBackend<T> + 'static,
+{
+    fn id(&self) -> Snowflake {
+        self.id()
+    }
+    fn get(&self) -> Option<&T> {
+        self.get()
+    }
+    fn get_mut(&mut self) -> Option<&mut T> {
+        self.get_mut()
+    }
+    fn exists(&self) -> bool {
+        self.exists()
+    }
+    fn store(&self) -> Result<()> {
+        self.store()
+    }
+    fn delete(&mut self) -> Result<()> {
+        self.delete()
     }
 }
 
@@ -326,6 +363,57 @@ where
     /// Retrieves a list of `Entity` IDs from storage.
     pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
         self.backend.keys(page, limit)
+    }
+}
+
+pub trait EntityStore<T>
+where
+    T: Entity + 'static,
+{
+    fn load(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<StoreReference<dyn EntityHandle<T>>>;
+    fn store(&self, object: T) -> Result<()>;
+    fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()>;
+    fn exists(&self, id: Snowflake) -> Result<bool>;
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
+}
+
+impl<T, U> EntityStore<T> for Store<T, U>
+where
+    T: Entity + 'static,
+    U: StoreBackend<T> + 'static,
+{
+    fn load(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<StoreReference<dyn EntityHandle<T>>> {
+        let wrapper = self.get_handle(id)?;
+
+        {
+            let mut write_handle = wrapper.write();
+            if !write_handle.initialized() {
+                write_handle.set_object(self.backend.load(id, cm)?);
+            }
+        }
+
+        Ok(wrapper)
+    }
+
+    fn store(&self, object: T) -> Result<()> {
+        self.store(object)
+    }
+    fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
+        self.delete(id, cm)
+    }
+    fn exists(&self, id: Snowflake) -> Result<bool> {
+        self.exists(id)
+    }
+    fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
+        self.keys(page, limit)
     }
 }
 
