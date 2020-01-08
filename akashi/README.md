@@ -1,7 +1,7 @@
 # Akashi
 
 [![Crates.io](https://img.shields.io/crates/v/akashi)](https://crates.io/crates/akashi)
-[![docs](https://docs.rs/akashi/badge.svg)](https://docs.rs/akashi/0.1.0/akashi/)
+[![docs](https://docs.rs/akashi/badge.svg)](https://docs.rs/akashi)
 [![tests](https://github.com/stmobo/akashi/workflows/tests/badge.svg)](https://github.com/stmobo/akashi)
 [![Crates.io](https://img.shields.io/crates/l/akashi)](https://github.com/stmobo/akashi/blob/master/LICENSE)
 
