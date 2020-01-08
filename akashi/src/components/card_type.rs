@@ -1,7 +1,7 @@
 use crate::card::Card;
 use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
-use crate::store::{ReadReference, Store, StoreBackend, StoreHandle, WriteReference};
+use crate::store::{EntityHandle, EntityStore, Store, StoreBackend, StoreReference};
 use crate::util::Result;
 
 use std::any::TypeId;
@@ -71,26 +71,20 @@ impl Entity for CardType {
 
 /// A `Component` representing a particular `CardType` entity that is
 /// associated with a `Card`.
-#[derive(Debug, Clone)]
-pub struct AttachedCardType<T>
-where
-    T: StoreBackend<CardType> + 'static,
-{
+#[derive(Clone)]
+pub struct AttachedCardType {
     type_id: Snowflake,
-    store: Arc<Store<CardType, T>>,
+    store: Arc<dyn EntityStore<CardType> + Sync + Send>,
     component_manager: Arc<ComponentManager<CardType>>,
 }
 
-impl<T> AttachedCardType<T>
-where
-    T: StoreBackend<CardType> + 'static,
-{
+impl AttachedCardType {
     /// Constructs a new `AttachedCardType` instance.
-    pub fn new(
+    pub fn new<T: StoreBackend<CardType> + Sync + Send + 'static>(
         type_id: Snowflake,
         store: Arc<Store<CardType, T>>,
         component_manager: Arc<ComponentManager<CardType>>,
-    ) -> AttachedCardType<T> {
+    ) -> AttachedCardType {
         AttachedCardType {
             type_id,
             store,
@@ -105,23 +99,20 @@ where
 
     /// Gets an immutable, read-locked reference to a StoreHandle for
     /// the associated `CardType` entity.
-    pub fn load(&self) -> Result<ReadReference<StoreHandle<CardType, T>>> {
+    pub fn load(&self) -> Result<StoreReference<dyn EntityHandle<CardType>>> {
         self.store
             .load(self.type_id, self.component_manager.clone())
     }
 
-    /// Gets a mutable, write-locked reference to a StoreHandle for the
-    /// associated `CardType` entity.
-    pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType, T>>> {
-        self.store
-            .load_mut(self.type_id, self.component_manager.clone())
-    }
+    // Gets a mutable, write-locked reference to a StoreHandle for the
+    // associated `CardType` entity.
+    //pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType, T>>> {
+    //    self.store
+    //        .load_mut(self.type_id, self.component_manager.clone())
+    //}
 }
 
-impl<T> Component<Card> for AttachedCardType<T> where
-    T: StoreBackend<CardType> + Sync + Send + 'static
-{
-}
+impl Component<Card> for AttachedCardType {}
 
 /// Provides `ComponentStore` services for `AttachedCardType` objects
 /// by wrapping another `ComponentStore`.
@@ -157,12 +148,12 @@ where
     }
 }
 
-impl<T, U> ComponentStore<Card, AttachedCardType<U>> for CardTypeLayer<T, U>
+impl<T, U> ComponentStore<Card, AttachedCardType> for CardTypeLayer<T, U>
 where
     T: ComponentStore<Card, Snowflake> + Sync + Send + 'static,
     U: StoreBackend<CardType> + Sync + Send + 'static,
 {
-    fn load(&self, entity: &Card) -> Result<Option<AttachedCardType<U>>> {
+    fn load(&self, entity: &Card) -> Result<Option<AttachedCardType>> {
         let attached_id: Option<Snowflake> = self.component_backend.load(entity)?;
 
         if let Some(type_id) = attached_id {
@@ -176,7 +167,7 @@ where
         }
     }
 
-    fn store(&self, entity: &Card, component: AttachedCardType<U>) -> Result<()> {
+    fn store(&self, entity: &Card, component: AttachedCardType) -> Result<()> {
         self.component_backend
             .store(entity, component.type_id.into())
     }
@@ -251,9 +242,6 @@ mod tests {
 
     impl Component<CardType> for MockTypeData {}
 
-    // TODO: make type inference for this less painful
-    type LocalAttachedCardType = AttachedCardType<LocalEntityStorage<CardType>>;
-
     #[test]
     fn test_store_type() {
         let mut fixtures = Fixtures::new();
@@ -279,7 +267,7 @@ mod tests {
             .load(card_id, fixtures.card_cm.clone())
             .unwrap();
         let card = handle.get().unwrap();
-        let attached_type: LocalAttachedCardType = card.get_component().unwrap().unwrap();
+        let attached_type: AttachedCardType = card.get_component().unwrap().unwrap();
 
         assert_eq!(attached_type.type_id, type_id);
     }
@@ -323,11 +311,12 @@ mod tests {
         let card = handle.get().unwrap();
 
         // Get attached type data.
-        let attached_type: LocalAttachedCardType = card.get_component().unwrap().unwrap();
+        let attached_type: AttachedCardType = card.get_component().unwrap().unwrap();
         assert_eq!(attached_type.type_id, type_id);
 
         // Attempt to load the type's attached MockTypeData.
-        let handle = attached_type.load().unwrap();
+        let wrapper = attached_type.load().unwrap();
+        let handle = wrapper.read();
         let card_type = handle.get().unwrap();
         let type_data: MockTypeData = card_type.get_component().unwrap().unwrap();
 

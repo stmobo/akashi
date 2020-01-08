@@ -54,7 +54,7 @@ rental! {
 
 pub use handle_ref::{HandleReadRef, HandleWriteRef};
 
-type StoreReference<T> = Arc<RwLock<T>>;
+pub type StoreReference<T> = Arc<RwLock<T>>;
 type WeakStoreReference<T> = Weak<RwLock<T>>;
 pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
 pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
