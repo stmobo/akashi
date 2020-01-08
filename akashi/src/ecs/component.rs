@@ -1,4 +1,4 @@
-//! The internals of the `Entity`-`Component` attachment system.
+//! The internals of the [`Entity`]-[`Component`] attachment system.
 
 use super::component_store::{ComponentStore, ComponentTypeData};
 use super::entity::Entity;
@@ -15,30 +15,32 @@ use failure::Fail;
 /// architecture.
 ///
 /// Components are used to hold data and provide functionality for
-/// Entities, such as Players and Cards.
+/// [`Entities`](Entity), such as [`Players`](crate::Player) and
+/// [`Cards`](crate::Card).
 ///
 /// This trait doesn't provide anything on its own, but it does
 /// allow a type to interact with the rest of the ECS code.
 pub trait Component<T>: Downcast + Sync + Send {}
 downcast_rs::impl_downcast!(Component<T>);
 
-/// Manages operations related to `Component`s, such as saving and loading
-/// `Component` data.
+/// Manages operations related to [`Components`](Component), such as
+/// saving and loading [`Component`] data.
 ///
 /// Typically, you won't need to call any methods on `ComponentManager`
-/// objects aside from `register_component`, since the corresponding
-/// Entity trait methods will do so for you.
+/// objects aside from [`register_component`](ComponentManager::register_component),
+/// since the corresponding [`Entity`] trait methods will do so for you.
 ///
 /// # Errors
 ///
 /// Most of the methods on this object ultimately end up
-/// wrapping methods on registered `Component` storage objects.
+/// wrapping methods on registered [`Component`] storage objects.
 /// Errors returned from those methods will be passed through by
 /// methods on `ComponentManager`.
 ///
-/// Additionally, attempts to perform operations with `Component` types
-/// for which no backing store has been registered with `register_component`
-/// will return `TypeNotFoundError`s.
+/// Additionally, attempts to perform operations with [`Component`] types
+/// for which no backing store has been registered with
+/// [`register_component`](ComponentManager::register_component) will return
+/// [`TypeNotFoundError`].
 #[derive(Debug)]
 pub struct ComponentManager<T: Entity + 'static> {
     component_types: HashMap<TypeId, ComponentTypeData<T>>,
@@ -56,11 +58,11 @@ impl<T: Entity + 'static> ComponentManager<T> {
     }
 
     /// Registers a backing storage object and unique name for a
-    /// `Component` type.
+    /// [`Component`] type.
     ///
     /// This registers a backing store and associated functions for
-    /// a `Component` type, allowing Entities that use this manager
-    /// to get/set Component data of that type.
+    /// a [`Component`] type, allowing [`Entities`](Entity) that use this manager
+    /// to get/set [`Component`] data of that type.
     pub fn register_component<U, V>(&mut self, name: &str, store: V)
     where
         U: Component<T> + 'static,
@@ -76,7 +78,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
             .insert(name.to_owned(), TypeId::of::<U>());
     }
 
-    /// Check to see if a particular `Component` type has registered
+    /// Check to see if a particular [`Component`] type has registered
     /// operations.
     pub fn is_registered<U: Component<T> + 'static>(&self) -> bool {
         self.component_types.contains_key(&TypeId::of::<U>())
@@ -90,7 +92,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         self.component_names_inv.get(name)
     }
 
-    /// Save data for a `Component` to the appropriate backing store.
+    /// Save data for a [`Component`] to the appropriate backing store.
     pub fn set_component<U: Component<T> + 'static>(&self, entity: &T, component: U) -> Result<()> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.store)(entity, Box::new(component))
@@ -102,7 +104,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         }
     }
 
-    /// Load data for a `Component` from the appropriate backing store.
+    /// Load data for a [`Component`] from the appropriate backing store.
     pub fn get_component<U: Component<T> + 'static>(&self, entity: &T) -> Result<Option<U>> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             if let Some(comp) = (data.load)(entity)? {
@@ -123,7 +125,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         }
     }
 
-    /// Delete the data for an attached `Component` from its registered
+    /// Delete the data for an attached [`Component`] from its registered
     /// backing store.
     pub fn delete_component<U: Component<T> + 'static>(&self, entity: &T) -> Result<()> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
@@ -136,7 +138,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         }
     }
 
-    /// Delete the data for a `Component` with the associated `TypeId`.
+    /// Delete the data for a [`Component`] with the associated `TypeId`.
     ///
     /// This should probably only be used internally.
     pub fn delete_component_by_id(&self, entity: &T, type_id: &TypeId) -> Result<()> {
@@ -150,7 +152,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         }
     }
 
-    /// Check to see if associated `Component` data exists for the given
+    /// Check to see if associated [`Component`] data exists for the given
     /// entity and Component type.
     pub fn component_exists<U: Component<T> + 'static>(&self, entity: &T) -> Result<bool> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {

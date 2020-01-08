@@ -12,44 +12,52 @@ use crate::ecs::{Component, Entity};
 /// objects made in the same millisecond.
 pub type Snowflake = u64;
 
+/// The epoch used when generating [`Snowflakes`](Snowflake), represented in
+/// milliseconds since the UNIX epoch.
+///
+/// This is currently the UNIX timestamp for midnight (UTC) on Dec. 15, 2018.
 pub const EPOCH_SECONDS: u64 = 1_544_832_000;
 
 const WORKER_ID_BITS: usize = 5;
 const GROUP_ID_BITS: usize = 5;
 const SEQUENCE_BITS: usize = 12;
 
+/// The highest possible worker ID a [`Snowflake`] can contain.
 pub const MAX_WORKER_ID: u64 = (1 << (WORKER_ID_BITS + 1)) - 1;
+
+/// The highest possible worker ID a [`Snowflake`] can contain.
 pub const MAX_GROUP_ID: u64 = (1 << (GROUP_ID_BITS + 1)) - 1;
+
 const SEQUENCE_MASK: u64 = (1 << (SEQUENCE_BITS + 1)) - 1;
 
 const WORKER_ID_SHIFT: usize = SEQUENCE_BITS;
 const GROUP_ID_SHIFT: usize = SEQUENCE_BITS + WORKER_ID_BITS;
 const TIMESTAMP_SHIFT: usize = SEQUENCE_BITS + WORKER_ID_BITS + GROUP_ID_BITS;
 
-#[allow(dead_code)]
+/// Get the time at which a [`Snowflake`] was generated.
 pub fn snowflake_timestamp(s: Snowflake) -> SystemTime {
     let epoch: SystemTime = SystemTime::UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS);
     epoch + Duration::from_millis(s >> TIMESTAMP_SHIFT)
 }
 
-#[allow(dead_code)]
+/// Get the sequence number from a [`Snowflake`].
 pub fn snowflake_sequence(s: Snowflake) -> u64 {
     s & SEQUENCE_MASK
 }
 
-#[allow(dead_code)]
+/// Get the worker ID from a [`Snowflake`].
 pub fn snowflake_worker_id(s: Snowflake) -> u64 {
     (s >> WORKER_ID_SHIFT) & MAX_WORKER_ID
 }
 
-#[allow(dead_code)]
+/// Get the group ID from a [`Snowflake`].
 pub fn snowflake_group_id(s: Snowflake) -> u64 {
     (s >> GROUP_ID_SHIFT) & MAX_GROUP_ID
 }
 
 impl<E: Entity + 'static> Component<E> for Snowflake {}
 
-/// Generates `Snowflake` IDs.
+/// Generates [`Snowflake`] IDs.
 #[derive(Debug)]
 pub struct SnowflakeGenerator {
     epoch: SystemTime,
@@ -85,7 +93,7 @@ impl SnowflakeGenerator {
         }
     }
 
-    /// Generates a new `Snowflake` ID.
+    /// Generates a new [`Snowflake`] ID.
     ///
     /// This might cause the current thread to sleep in the rare event
     /// that the system clock goes backwards.

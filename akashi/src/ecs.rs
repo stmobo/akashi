@@ -4,8 +4,13 @@ pub mod component;
 pub mod component_store;
 pub mod entity;
 
+#[doc(inline)]
 pub use component::{Component, ComponentManager};
+
+#[doc(inline)]
 pub use component_store::ComponentStore;
+
+#[doc(inline)]
 pub use entity::Entity;
 
 pub use component::TypeNotFoundError;

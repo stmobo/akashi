@@ -9,7 +9,7 @@ use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
 /// Represents a player / user.
 ///
-/// Strictly speaking, this is just a minimal Entity object.
+/// Strictly speaking, this is just a minimal [`Entity`] object.
 #[derive(Debug, Clone)]
 pub struct Player {
     id: Snowflake,
@@ -31,7 +31,7 @@ impl Player {
         }
     }
 
-    /// Create an 'empty' `Player` instance with no attached `Components`
+    /// Create an 'empty' `Player` instance with no attached [`Components`](crate::Component)
     /// and a randomly-generated ID.
     pub fn empty(
         snowflake_gen: &mut SnowflakeGenerator,
@@ -49,7 +49,7 @@ impl Player {
         self.id
     }
 
-    /// Get a reference to this `Player`'s associated `ComponentManager`.
+    /// Get a reference to this `Player`'s associated [`ComponentManager`].
     pub fn component_manager(&self) -> &ComponentManager<Player> {
         &self.component_manager
     }

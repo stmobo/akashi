@@ -15,7 +15,7 @@ use crate::snowflake::Snowflake;
 use crate::store::{SharedStore, Store, StoreBackend};
 use crate::util::Result;
 
-/// A convenient container for `Player` and `Card` storage in-memory.
+/// A convenient container for [`Player`] and [`Card`] storage in-memory.
 ///
 /// This is mainly meant for use in testing and for prototyping. It has
 /// no provisions for storing data to a persistent medium.
@@ -66,7 +66,8 @@ impl SharedStore<Card, LocalStoreBackend> for SharedLocalStore {
     }
 }
 
-/// In-memory storage backend for `Player`s, `Card`s, and `Inventories`.
+/// In-memory storage backend for [`Players`](Player), [`Cards`](Card), and
+/// [`Inventories`](Inventory).
 pub struct LocalStoreBackend {
     players: RwLock<HashMap<Snowflake, Player>>,
     cards: RwLock<HashMap<Snowflake, Card>>,
@@ -180,7 +181,8 @@ impl StoreBackend<Card> for LocalStoreBackend {
     }
 }
 
-/// A storage backend for `Inventories` that uses a `LocalStoreBackend`.
+/// A storage backend for [`Inventories`](Inventory) that uses a
+/// [`LocalStoreBackend`].
 pub struct LocalInventoryStore {
     backend: Arc<LocalStoreBackend>,
 }
@@ -248,6 +250,10 @@ impl ComponentStore<Player, Inventory> for LocalInventoryStore {
     }
 }
 
+/// In-memory [`Entity`] storage backend.
+///
+/// This is mainly meant for use in testing and for prototyping. It has
+/// no provisions for storing data to a persistent medium.
 pub struct LocalEntityStorage<T: Entity + Clone + 'static> {
     data: RwLock<HashMap<Snowflake, T>>,
 }
@@ -307,7 +313,7 @@ where
     }
 }
 
-/// In-memory `Component` storage backend.
+/// In-memory [`Component`] storage backend.
 ///
 /// This is mainly meant for use in testing and for prototyping. It has
 /// no provisions for storing data to a persistent medium.

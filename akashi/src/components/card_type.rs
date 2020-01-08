@@ -1,3 +1,5 @@
+//! Utilities for working with in-game card categories or types.
+
 use crate::card::Card;
 use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
@@ -8,9 +10,9 @@ use std::any::TypeId;
 use std::collections::HashSet;
 use std::sync::Arc;
 
-/// An `Entity` representing an abstract card type.
+/// An [`Entity`](Entity) representing an abstract card type.
 ///
-/// For instance, this `Entity` can be used to group together card data
+/// For instance, this [`Entity`](Entity) can be used to group together card data
 /// common to a specific character or other card variety.
 #[derive(Debug, Clone)]
 pub struct CardType {
@@ -34,7 +36,7 @@ impl CardType {
     }
 
     /// Creates an empty `CardType` instance, with a randomized ID and
-    /// no attached `Component`s.
+    /// no attached [`Components`](Component).
     pub fn generate(
         snowflake_gen: &mut SnowflakeGenerator,
         component_manager: Arc<ComponentManager<CardType>>,
@@ -69,8 +71,8 @@ impl Entity for CardType {
     }
 }
 
-/// A `Component` representing a particular `CardType` entity that is
-/// associated with a `Card`.
+/// A [`Component`] representing a particular [`CardType`]
+/// entity that is associated with a [`Card`].
 #[derive(Clone)]
 pub struct AttachedCardType {
     type_id: Snowflake,
@@ -92,13 +94,13 @@ impl AttachedCardType {
         }
     }
 
-    /// Gets the ID of the associated `CardType` entity.
+    /// Gets the ID of the associated [`CardType`] entity.
     pub fn type_id(&self) -> Snowflake {
         self.type_id
     }
 
     /// Gets an immutable, read-locked reference to the actual
-    /// [`CardType`](CardType) entity referred to by this component
+    /// [`CardType`] entity referred to by this component
     /// from storage.
     pub fn load(&self) -> Result<ReadReference<StoreHandle<CardType>>> {
         self.store
@@ -106,7 +108,7 @@ impl AttachedCardType {
     }
 
     /// Gets a mutable, write-locked reference to the actual
-    /// [`CardType`](CardType) entity referred to by this component
+    /// [`CardType`] entity referred to by this component
     /// from storage.
     pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType>>> {
         self.store
@@ -116,8 +118,9 @@ impl AttachedCardType {
 
 impl Component<Card> for AttachedCardType {}
 
-/// Provides `ComponentStore` services for [`AttachedCardTypes`](AttachedCardType)
-/// by wrapping another `ComponentStore`.
+/// Acts as a [`ComponentStore`](ComponentStore) for
+/// [`AttachedCardTypes`](AttachedCardType) by wrapping another
+/// [`ComponentStore`](ComponentStore).
 ///
 /// The wrapped storage type needs to implement loading and storing
 /// card type IDs via the `ComponentStore<Card, Snowflake>` trait.

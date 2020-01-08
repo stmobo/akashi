@@ -1,4 +1,4 @@
-//! Akashi's storage system for `Entities`.
+//! Akashi's storage system for [`Entities`](Entity).
 
 use std::any;
 use std::cell::Cell;
@@ -23,7 +23,7 @@ rental! {
         use super::*;
 
         /// A self-referential type that wraps `Arc<RwLock<StoreHandle>>`
-        /// into a single immutable reference.
+        /// into a read-locked immutable reference.
         ///
         /// This struct effectively contains an `Arc` pointing to an
         /// `RwLock` and a read guard for that same lock.
@@ -37,7 +37,7 @@ rental! {
         }
 
         /// A self-referential type that wraps `Arc<RwLock<StoreHandle>>`
-        /// into a single mutable reference.
+        /// into a write-locked mutable reference.
         ///
         /// This struct effectively contains an `Arc` pointing to an
         /// `RwLock` and a write guard for that same lock.
@@ -59,18 +59,18 @@ type WeakStoreReference<T> = Weak<RwLock<T>>;
 pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
 pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
 
-/// Converts `Arc<RwLock<T>>` to a `ReadReference` by taking the inner read lock.
+/// Converts `Arc<RwLock<T>>` to a [`ReadReference`] by taking the inner read lock.
 pub fn read_store_reference<T: 'static>(head: StoreReference<T>) -> ReadReference<T> {
     HandleReadRef::new(head, |s| s.read())
 }
 
-/// Converts `Arc<RwLock<T>>` to a `WriteReference` by locking the inner write lock.
+/// Converts `Arc<RwLock<T>>` to a [`WriteReference`] by locking the inner write lock.
 pub fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteReference<T> {
     HandleWriteRef::new(head, |s| s.write())
 }
 
 /// This is a trait for wrapping up objects that contain stores for
-/// multiple types of `Entity`.
+/// multiple types of [`Entity`].
 pub trait SharedStore<T, U>
 where
     T: Entity + 'static,
@@ -79,7 +79,7 @@ where
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
 
-/// A shared handle to an `Entity` and its storage backend.
+/// A shared handle to an [`Entity`] and its storage backend.
 ///
 /// # Errors
 ///
@@ -137,7 +137,7 @@ where
         }
     }
 
-    /// Gets the ID of the `Entity` in this handle.
+    /// Gets the ID of the [`Entity`] in this handle.
     pub fn id(&self) -> Snowflake {
         self.id
     }
@@ -158,7 +158,7 @@ where
         }
     }
 
-    /// Clears out the data in this handle, then deletes the `Entity`
+    /// Clears out the data in this handle, then deletes the [`Entity`]
     /// from storage.
     pub fn delete(&mut self) -> Result<()> {
         if let Some(obj) = &mut self.object {
@@ -180,8 +180,8 @@ where
     }
 }
 
-/// Handles storing `Entities` and coordinating access to them across
-/// multiple threads.
+/// Handles storing [`Entities`](Entity) and coordinating access to
+/// them across multiple threads.
 ///
 /// # Errors
 ///
@@ -210,7 +210,7 @@ where
         }
     }
 
-    /// Retrieves or creates a possibly-uninitialized StoreHandle from
+    /// Retrieves or creates a possibly-uninitialized [`StoreHandle`] from
     /// the underlying hashmap.
     fn get_handle(&self, id: Snowflake) -> Result<StoreReference<StoreHandle<T>>> {
         let ret_cell: Cell<Result<StoreReference<StoreHandle<T>>>> =
@@ -242,10 +242,10 @@ where
         ret_cell.into_inner()
     }
 
-    /// Gets an immutable reference to the handle for the `Entity` with
-    /// the given ID.
+    /// Gets an immutable reference to the handle for the [`Card`](crate::Card)
+    /// with the given ID.
     ///
-    /// Data for the `Entity` will be loaded from storage if needed.
+    /// Data for the [`Entity`] will be loaded from storage if needed.
     ///
     /// The returned reference is read-locked, so multiple threads can
     /// use references from this function at once.
@@ -267,10 +267,10 @@ where
         Ok(handle)
     }
 
-    /// Gets a mutable reference to the handle for the `Entity` with
+    /// Gets a mutable reference to the handle for the [`Entity`] with
     /// the given ID.
     ///
-    /// Data for the `Entity` will be loaded from storage if needed.
+    /// Data for the [`Entity`] will be loaded from storage if needed.
     ///
     /// The returned reference is write-locked, so exclusive access to
     /// the handle is ensured.
@@ -289,8 +289,8 @@ where
         Ok(handle)
     }
 
-    /// Puts the given `Entity` into storage, overwriting any previously
-    /// stored `Entity` data with the same ID.
+    /// Puts the given [`Entity`] into storage, overwriting any previously
+    /// stored [`Entity`] data with the same ID.
     pub fn store(&self, object: T) -> Result<()> {
         let id = object.id();
         let wrapper = self.get_handle(id)?;
@@ -300,19 +300,19 @@ where
         handle.store()
     }
 
-    /// Deletes the `Entity` with the given ID from storage.
+    /// Deletes the [`Entity`] with the given ID from storage.
     ///
-    /// Note that internally, this method loads the `Entity` prior to
-    /// deleting it, so that attached `Component`s are properly deleted.
+    /// Note that internally, this method loads the [`Entity`] prior to
+    /// deleting it, so that attached [`Components`](crate::Component) are properly deleted.
     ///
-    /// If you already have an open handle to the `Entity`, you should
-    /// use `StoreHandle::delete()` instead.
+    /// If you already have an open handle to the [`Entity`], you should
+    /// use [`StoreHandle::delete`] instead.
     pub fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
         let mut handle = self.load_mut(id, cm)?;
         handle.delete()
     }
 
-    /// Checks to see if an `Entity` with the given ID exists.
+    /// Checks to see if an [`Entity`] with the given ID exists.
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
         let wrapper = self.get_handle(id)?;
         let handle = wrapper.read();
@@ -324,7 +324,7 @@ where
         }
     }
 
-    /// Retrieves a list of `Entity` IDs from storage.
+    /// Retrieves a list of [`Entity`] IDs from storage.
     pub fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
         self.backend.keys(page, limit)
     }
@@ -414,26 +414,26 @@ where
     }
 }
 
-/// This trait is used to mark backing storage objects for `Entities`.
+/// This trait is used to mark backing storage objects for [`Entities`](Entity).
 ///
 /// Structs that implement this trait can be used as backing storage
-/// for `Entities` such as `Player`s and `Cards`, and can be passed to
-/// `Store::new`.
+/// for [`Entities`](Entity) such as [`Players`](crate::Player) and
+/// [`Cards`](crate::Card), and can be passed to [`Store::new`].
 pub trait StoreBackend<T: Entity + 'static> {
-    /// Loads data for an `Entity` from storage, if any `Entity` with
+    /// Loads data for an [`Entity`] from storage, if any [`Entity`] with
     /// the given ID exists.
     fn load(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<Option<T>>;
 
-    /// Checks to see if an `Entity` with the given ID exists in storage.
+    /// Checks to see if an [`Entity`] with the given ID exists in storage.
     fn exists(&self, id: Snowflake) -> Result<bool>;
 
-    /// Saves data for an `Entity` to storage.
+    /// Saves data for an [`Entity`] to storage.
     fn store(&self, id: Snowflake, object: &T) -> Result<()>;
 
-    /// Deletes data for an `Entity` from storage.
+    /// Deletes data for an [`Entity`] from storage.
     fn delete(&self, id: Snowflake) -> Result<()>;
 
-    /// Retrieve a list of `Entity` IDs from storage.
+    /// Retrieve a list of [`Entity`] IDs from storage.
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
 }
 

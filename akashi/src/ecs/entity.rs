@@ -1,4 +1,4 @@
-//! General game objects to which `Component`s are attached.
+//! General game objects to which [`Components`](Component) are attached.
 
 use super::component::{Component, ComponentManager, TypeNotFoundError};
 use crate::snowflake::Snowflake;
@@ -18,38 +18,38 @@ use failure::{Error, Fail};
 /// Entities, on their own, are essentially just a unique ID and a
 /// collection of attached Components.
 ///
-/// The two main Entity types that Akashi provides are `Player`s and
-/// `Card`s.
+/// The two main Entity types that Akashi provides are [`Players`](crate::Player) and
+/// [`Cards`](crate::Card).
 ///
 /// # Errors
 ///
 /// Many of the methods provided by this trait wrap similar methods on
-/// `ComponentManager` objects, which in turn wrap a number of `Component`
-/// storage objects. Errors reported by those will bubble up through
-/// these methods.
+/// [`ComponentManager`] objects, which in turn wrap a
+/// number of [`Component`] storage objects.
+/// Errors reported by those will bubble up through these methods.
 ///
-/// Additionally, attempts to perform operations with `Component` types
-/// for which no backing store has been registered with
-/// `ComponentManager::register_component` will return
-/// `TypeNotFoundError`s.
+/// Additionally, attempts to perform operations with [`Component`]
+/// types for which no backing store has been registered with
+/// [`ComponentManager::register_component`](ComponentManager::register_component)
+/// will return [`TypeNotFoundError`](TypeNotFoundError).
 pub trait Entity: Sized + 'static {
     /// Gets the unique ID used to identify this Entity and its
     /// Components.
     fn id(&self) -> Snowflake;
 
-    /// Gets a reference to the `ComponentManager` used to perform
-    /// operations on this Entity.
+    /// Gets a reference to the [`ComponentManager`]
+    /// used to perform operations on this Entity.
     fn component_manager(&self) -> &ComponentManager<Self>;
 
     /// Gets a reference to a `HashSet` containing the `TypeId`s of each
-    /// `Component` attached to this Entity.
+    /// [`Component`] attached to this Entity.
     fn components_attached(&self) -> &HashSet<TypeId>;
 
     /// Gets a mutable reference to the `HashSet` of attached component
     /// `TypeId`s.
     fn components_attached_mut(&mut self) -> &mut HashSet<TypeId>;
 
-    /// Gets a `Component` attached to this Entity.
+    /// Gets a [`Component`] attached to this Entity.
     fn get_component<T: Component<Self> + 'static>(&self) -> Result<Option<T>> {
         if !self.components_attached().contains(&TypeId::of::<T>()) {
             if !self.component_manager().is_registered::<T>() {
@@ -62,8 +62,8 @@ pub trait Entity: Sized + 'static {
         }
     }
 
-    /// Attaches a `Component` to this Entity, or updates an already-attached
-    /// `Component`.
+    /// Attaches a [`Component`] to this Entity, or updates an already-attached
+    /// [`Component`].
     fn set_component<T: Component<Self> + 'static>(&mut self, component: T) -> Result<()> {
         self.component_manager()
             .set_component::<T>(&self, component)
@@ -72,29 +72,30 @@ pub trait Entity: Sized + 'static {
             })
     }
 
-    /// Checks to see if the given `Component` type has been attached to
-    /// this Entity.
+    /// Checks to see if the given [`Component`] type has
+    /// been attached to this Entity.
     ///
-    /// Unlike most of the other trait methods on `Entity`, this doesn't
-    /// return a `TypeNotFoundError` for Components without an associated
-    /// backing store. Instead, it will just return `false`.
+    /// Unlike most of the other `Entity` trait methods, this doesn't
+    /// return a [`TypeNotFoundError`] for [`Components`](Component)
+    /// without an associated backing store. Instead, it will just return
+    /// `false`.
     fn has_component<T: Component<Self> + 'static>(&self) -> bool {
         self.components_attached().contains(&TypeId::of::<T>())
     }
 
-    /// Deletes an attached `Component` from this Entity.
+    /// Deletes an attached [`Component`] from this Entity.
     fn delete_component<T: Component<Self> + 'static>(&mut self) -> Result<()> {
         self.components_attached_mut().remove(&TypeId::of::<T>());
         self.component_manager().delete_component::<T>(&self)
     }
 
-    /// Delete all `Component`s attached to this Entity.
+    /// Delete all [`Components`](Component) attached to this Entity.
     ///
     /// # Errors
     ///
-    /// Any errors reported by the backing storage objects for `Component`s
-    /// attached to this Entity will be collected into a
-    /// `ClearComponentsError` object.
+    /// Any errors reported by the backing storage objects for
+    /// [`Components`](Component) attached to this Entity will be
+    /// collected into a [`ClearComponentsError`].
     fn clear_components(&mut self) -> result::Result<(), ClearComponentsError> {
         let mut err = ClearComponentsError::new();
         for type_id in self.components_attached().iter() {
@@ -116,7 +117,7 @@ pub trait Entity: Sized + 'static {
     }
 }
 
-/// This failure type collects errors from `Entity::clear_components`.
+/// This failure type collects errors from [`Entity::clear_components`].
 #[derive(Fail, Debug)]
 pub struct ClearComponentsError {
     errors: Vec<Error>,

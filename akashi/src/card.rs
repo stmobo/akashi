@@ -9,7 +9,7 @@ use crate::snowflake::{Snowflake, SnowflakeGenerator};
 
 /// Represents a tradable card.
 ///
-/// Strictly speaking, this is just a bare-bones Entity.  
+/// Strictly speaking, this is just a bare-bones [`Entity`].  
 #[derive(Clone, Debug)]
 pub struct Card {
     id: Snowflake,
@@ -48,7 +48,7 @@ impl Card {
         self.id
     }
 
-    /// Get a reference to this `Card`'s associated `ComponentManager`.
+    /// Get a reference to this `Card`'s associated [`ComponentManager`].
     pub fn component_manager(&self) -> &ComponentManager<Card> {
         &self.component_manager
     }
