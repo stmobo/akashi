@@ -286,7 +286,7 @@ where
         }
     }
 
-    /// Gets an immutable reference to the handle for the [`Card`](crate::Card)
+    /// Gets an immutable reference to the handle for the [`Entity`]
     /// with the given ID.
     ///
     /// Data for the [`Entity`] will be loaded from storage if needed.
