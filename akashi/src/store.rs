@@ -11,7 +11,7 @@ use stable_deref_trait::CloneStableDeref;
 
 use chashmap::CHashMap;
 use failure::err_msg;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{Once, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::ecs::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
@@ -93,7 +93,6 @@ where
     backend: Arc<dyn StoreBackend<T> + Sync + Send + 'static>,
     id: Snowflake,
     object: Option<T>,
-    initialized: bool,
 }
 
 impl<T> StoreHandle<T>
@@ -108,33 +107,22 @@ where
             backend,
             id,
             object,
-            initialized: false,
         }
     }
 
     /// Gets a reference to the object within this handle.
     pub fn get(&self) -> Option<&T> {
-        assert!(self.initialized);
         self.object.as_ref()
     }
 
     /// Gets a mutable reference to the object within this handle.
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        assert!(self.initialized);
         self.object.as_mut()
     }
 
     /// Replaces the object within this handle with something else.
     pub fn replace(&mut self, object: T) -> Option<T> {
-        let prev_object = self.object.replace(object);
-        let prev_initialized = self.initialized;
-        self.initialized = true;
-
-        if prev_initialized {
-            prev_object
-        } else {
-            None
-        }
+        self.object.replace(object)
     }
 
     /// Gets the ID of the [`Entity`] in this handle.
@@ -144,14 +132,11 @@ where
 
     /// Checks whether anything is actually contained in this handle.
     pub fn exists(&self) -> bool {
-        assert!(self.initialized);
         self.object.is_some()
     }
 
     /// Puts whatever is in this handle into storage.
     pub fn store(&self) -> Result<()> {
-        assert!(self.initialized);
-
         match &self.object {
             None => self.backend.delete(self.id),
             Some(obj) => self.backend.store(self.id, &obj),
@@ -166,18 +151,33 @@ where
         }
 
         self.object = None;
-        self.initialized = true;
         self.backend.delete(self.id)
     }
 
     fn set_object(&mut self, object: Option<T>) {
         self.object = object;
-        self.initialized = true;
     }
+}
 
-    fn initialized(&self) -> bool {
-        self.initialized
-    }
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct StoredHandleData<T>
+where
+    T: Entity + 'static,
+{
+    initializer: Arc<Once>,
+    handle: WeakStoreReference<StoreHandle<T>>,
+}
+
+// Strong version of StoredHandleData
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct HandleData<T>
+where
+    T: Entity + 'static,
+{
+    initializer: Arc<Once>,
+    handle: StoreReference<StoreHandle<T>>,
 }
 
 /// Handles storing [`Entities`](Entity) and coordinating access to
@@ -194,7 +194,7 @@ where
     U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, WeakStoreReference<StoreHandle<T>>>,
+    refs: CHashMap<Snowflake, StoredHandleData<T>>,
 }
 
 impl<T, U> Store<T, U>
@@ -212,34 +212,78 @@ where
 
     /// Retrieves or creates a possibly-uninitialized [`StoreHandle`] from
     /// the underlying hashmap.
-    fn get_handle(&self, id: Snowflake) -> Result<StoreReference<StoreHandle<T>>> {
-        let ret_cell: Cell<Result<StoreReference<StoreHandle<T>>>> =
-            Cell::new(Err(err_msg("unknown load error")));
+    fn get_handle(&self, id: Snowflake) -> Result<HandleData<T>> {
+        let ret_cell: Cell<Result<HandleData<T>>> = Cell::new(Err(err_msg("unknown load error")));
 
         // All of this needs to be done with a write lock on the bucket
         // for this hashmap entry.
         self.refs.alter(id, |val| {
             // If a previously-retrieved handle is still around, use that.
-            if let Some(weak) = val.clone() {
-                if let Some(strong) = weak.upgrade() {
+            if let Some(data) = val {
+                if let Some(strong) = data.handle.upgrade() {
                     // use _e here so that the compiler stops complaining
                     // about us not using a Result
-                    let _e = ret_cell.replace(Ok(strong));
-                    return val;
+                    let ret = HandleData {
+                        initializer: data.initializer.clone(),
+                        handle: strong,
+                    };
+
+                    let _e = ret_cell.replace(Ok(ret));
+                    return Some(data);
                 }
             }
 
             // Create a new handle and store it into the hashmap.
-            // This handle starts uninitialized.
             let handle: StoreHandle<T> = StoreHandle::new(self.backend.clone(), id, None);
-            let ret = Arc::new(RwLock::new(handle));
-            let weak = Arc::downgrade(&ret);
+            let strong = Arc::new(RwLock::new(handle));
+            let weak = Arc::downgrade(&strong);
+            let initializer = Arc::new(Once::new());
+
+            let ret = HandleData {
+                initializer: initializer.clone(),
+                handle: strong,
+            };
+
+            let stored = StoredHandleData {
+                initializer,
+                handle: weak,
+            };
 
             let _e = ret_cell.replace(Ok(ret));
-            Some(weak)
+            Some(stored)
         });
 
         ret_cell.into_inner()
+    }
+
+    // Initializes a handle by loading data from the backend.
+    // Uses the `initializer` contained in the handle_data to ensure
+    // that only one thread tries to initialize at once.
+    fn initialize_handle(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+        handle_data: HandleData<T>,
+    ) -> Result<HandleData<T>> {
+        let mut res: Result<()> = Result::Ok(());
+
+        handle_data.initializer.call_once(|| {
+            let mut write_handle = handle_data.handle.write();
+            match self.backend.load(id, cm) {
+                Err(e) => {
+                    res = Err(e);
+                    write_handle.set_object(None);
+                }
+                Ok(data) => {
+                    write_handle.set_object(data);
+                }
+            };
+        });
+
+        match res {
+            Err(e) => Err(e),
+            Ok(_v) => Ok(handle_data),
+        }
     }
 
     /// Gets an immutable reference to the handle for the [`Card`](crate::Card)
@@ -254,17 +298,8 @@ where
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
     ) -> Result<ReadReference<StoreHandle<T>>> {
-        let wrapper = self.get_handle(id)?;
-
-        {
-            let mut write_handle = wrapper.write();
-            if !write_handle.initialized() {
-                write_handle.set_object(self.backend.load(id, cm)?);
-            }
-        }
-
-        let handle = read_store_reference(wrapper);
-        Ok(handle)
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        Ok(read_store_reference(handle_data.handle))
     }
 
     /// Gets a mutable reference to the handle for the [`Entity`] with
@@ -279,31 +314,47 @@ where
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
     ) -> Result<WriteReference<StoreHandle<T>>> {
-        let wrapper = self.get_handle(id)?;
-        let mut handle = write_store_reference(wrapper);
-
-        if !handle.initialized() {
-            handle.set_object(self.backend.load(id, cm)?);
-        }
-
-        Ok(handle)
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        Ok(write_store_reference(handle_data.handle))
     }
 
     /// Puts the given [`Entity`] into storage, overwriting any previously
     /// stored [`Entity`] data with the same ID.
     pub fn store(&self, object: T) -> Result<()> {
         let id = object.id();
-        let wrapper = self.get_handle(id)?;
-        let mut handle = wrapper.write();
+        let handle_data = self.get_handle(id)?;
 
-        handle.set_object(Some(object));
-        handle.store()
+        // If the initializer gets called, `object` gets set to None,
+        // and initializer_result is filled in with the result value.
+        //
+        // If the initializer is _not_ called, `object` remains as Some(object),
+        // and initializer_result is None.
+        let mut object: Option<T> = Some(object);
+        let mut initializer_result: Option<Result<()>> = None;
+
+        handle_data.initializer.call_once(|| {
+            let mut handle = handle_data.handle.write();
+            handle.set_object(object.take());
+            initializer_result = Some(handle.store());
+        });
+
+        if let Some(obj) = object {
+            let mut handle = handle_data.handle.write();
+            handle.set_object(Some(obj));
+            handle.store()
+        } else {
+            // This should be safe, because in the initializer,
+            // object.take() is immediately followed by setting
+            // initializer_result to some result.
+            initializer_result.unwrap()
+        }
     }
 
     /// Deletes the [`Entity`] with the given ID from storage.
     ///
     /// Note that internally, this method loads the [`Entity`] prior to
-    /// deleting it, so that attached [`Components`](crate::Component) are properly deleted.
+    /// deleting it, so that attached [`Components`](crate::Component) are
+    /// properly deleted.
     ///
     /// If you already have an open handle to the [`Entity`], you should
     /// use [`StoreHandle::delete`] instead.
@@ -314,11 +365,11 @@ where
 
     /// Checks to see if an [`Entity`] with the given ID exists.
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
-        let wrapper = self.get_handle(id)?;
-        let handle = wrapper.read();
+        let handle_data = self.get_handle(id)?;
 
-        if handle.initialized() {
-            Ok(handle.exists())
+        if handle_data.initializer.state().done() {
+            let read_lock = handle_data.handle.read();
+            Ok(read_lock.exists())
         } else {
             self.backend.exists(id)
         }
@@ -443,7 +494,7 @@ mod tests {
 
     use std::any::TypeId;
     use std::collections::{HashMap, HashSet};
-    use std::sync::{Arc, RwLock};
+    use std::sync::{mpsc, Arc, Barrier, RwLock};
     use std::thread;
 
     use crate::snowflake::SnowflakeGenerator;
@@ -455,6 +506,22 @@ mod tests {
         field_b: u64,
         cm: Arc<ComponentManager<MockStoredData>>,
         components_attached: HashSet<TypeId>,
+    }
+
+    impl MockStoredData {
+        fn new(id: Snowflake, field_a: String, field_b: u64) -> MockStoredData {
+            MockStoredData {
+                id,
+                field_a,
+                field_b,
+                cm: Arc::new(ComponentManager::new()),
+                components_attached: HashSet::new(),
+            }
+        }
+
+        fn id<'a>(&'a self) -> &'a Snowflake {
+            &self.id
+        }
     }
 
     impl Entity for MockStoredData {
@@ -477,32 +544,21 @@ mod tests {
 
     struct MockStoreBackend {
         data: RwLock<HashMap<Snowflake, MockStoredData>>,
+        remove_on_load: bool,
     }
 
     impl MockStoreBackend {
         fn new() -> MockStoreBackend {
             MockStoreBackend {
                 data: RwLock::new(HashMap::new()),
-            }
-        }
-    }
-
-    impl MockStoredData {
-        fn new(id: Snowflake, field_a: String, field_b: u64) -> MockStoredData {
-            MockStoredData {
-                id,
-                field_a,
-                field_b,
-                cm: Arc::new(ComponentManager::new()),
-                components_attached: HashSet::new(),
+                remove_on_load: false,
             }
         }
 
-        fn id<'a>(&'a self) -> &'a Snowflake {
-            &self.id
+        fn set_remove_on_load(&mut self, flag: bool) {
+            self.remove_on_load = flag;
         }
     }
-
     impl StoreBackend<MockStoredData> for MockStoreBackend {
         fn exists(&self, id: Snowflake) -> Result<bool> {
             let map = self.data.read().unwrap();
@@ -514,10 +570,14 @@ mod tests {
             id: Snowflake,
             _cm: Arc<ComponentManager<MockStoredData>>,
         ) -> Result<Option<MockStoredData>> {
-            let map = self.data.read().unwrap();
-            match map.get(&id) {
-                None => Ok(None),
-                Some(pl) => Ok(Some(pl.clone())),
+            if !self.remove_on_load {
+                let map = self.data.read().unwrap();
+                Ok(map.get(&id).map(|pl| pl.clone()))
+            } else {
+                let mut map = self.data.write().unwrap();
+                let res = Ok(map.get(&id).map(|pl| pl.clone()));
+                map.remove(&id);
+                res
             }
         }
 
@@ -602,25 +662,153 @@ mod tests {
 
     #[test]
     fn test_concurrent_load() {
+        // Create some test data to load.
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockStoreBackend::new());
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        backend.store(id, &data).unwrap();
 
-        backend.store(*data.id(), &data).unwrap();
+        // Create a bunch of threads.
+        // These threads will all try to access the same data at the same
+        // time.
         let store = Arc::new(MockStore::new(backend));
-        let store2 = store.clone();
-        let handle = thread::spawn(move || {
-            let wrapper_1 = store2.get_handle(id).unwrap();
-            wrapper_1
-        });
+        let mut threads = Vec::with_capacity(9);
+        let barrier = Arc::new(Barrier::new(10));
 
-        let wrapper_2 = store.get_handle(*data.id()).unwrap();
-        let wrapper_1 = handle.join().unwrap();
+        for _ in 0..9 {
+            let b_clone = barrier.clone();
+            let s_clone = store.clone();
 
-        // wrapper_1 and wrapper_2 should be Arcs pointing to the same
-        // data.
-        assert!(Arc::ptr_eq(&wrapper_1, &wrapper_2));
+            let handle = thread::spawn(move || {
+                b_clone.wait();
+                let wrapper = s_clone.get_handle(id).unwrap();
+                wrapper
+            });
+
+            threads.push(handle);
+        }
+
+        barrier.wait();
+        let our_wrapper = store.get_handle(id).unwrap();
+
+        for thread in threads {
+            // Check what the other threads got for a handle.
+            // Both wrapper objects should contain Arcs pointing to the
+            // same data.
+            let their_wrapper = thread.join().unwrap();
+            assert!(Arc::ptr_eq(&our_wrapper.handle, &their_wrapper.handle));
+        }
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        // Create some test data to load.
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let mut backend = MockStoreBackend::new();
+        let id = snowflake_gen.generate();
+        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+
+        // Detect if and when we end up performing multiple backend loads.
+        backend.set_remove_on_load(true);
+        backend.store(id, &data).unwrap();
+
+        // Like in test_concurrent_load, create a bunch of threads primed
+        // to access the data simultaneously.
+        //
+        // Unlike in test_concurrent_load, however, these threads will attempt
+        // a full retrieval from the backend.
+        let store = Arc::new(MockStore::new(Arc::new(backend)));
+        let barrier = Arc::new(Barrier::new(10));
+        let mut threads = Vec::with_capacity(9);
+        let (tx, rx) = mpsc::channel();
+
+        for _ in 0..9 {
+            let b_clone = barrier.clone();
+            let s_clone = store.clone();
+            let tx_clone = tx.clone();
+
+            let handle = thread::spawn(move || {
+                b_clone.wait();
+                let handle = s_clone.load(id, Arc::new(ComponentManager::new())).unwrap();
+                let data = handle.get().unwrap();
+
+                tx_clone
+                    .send((data.id, data.field_a.clone(), data.field_b))
+                    .unwrap();
+
+                // Threads need to hang around to ensure that at least one
+                // Arc to the handle exists at all times.
+                b_clone.wait();
+                assert_eq!(data.id, id);
+            });
+
+            threads.push(handle);
+        }
+
+        // Make sure our handle to the data is dropped before telling the
+        // other threads to exit.
+        {
+            barrier.wait();
+            let handle = store.load(id, Arc::new(ComponentManager::new())).unwrap();
+            let data = handle.get().unwrap();
+
+            // Get the data as seen by all threads.
+            for _ in 0..9 {
+                let their_data = rx.recv().unwrap();
+
+                assert_eq!(data.id, their_data.0);
+                assert_eq!(data.field_a, their_data.1);
+                assert_eq!(data.field_b, their_data.2);
+            }
+        }
+
+        // Tell all other threads to exit.
+        // Once they all drop their handles, the underlying MockStoreData
+        // should get dropped as well.
+        barrier.wait();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        // Now make sure that the MockStoreData actually _did_ get dropped.
+        // Since we did `backend.set_remove_on_load`, this should now load
+        // None into the handle.
+        let handle = store.load(id, Arc::new(ComponentManager::new())).unwrap();
+        let data = handle.get();
+        assert!(data.is_none());
+    }
+
+    #[test]
+    fn test_multiple_single_thread_access() {
+        // Create some test data to load.
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let backend = MockStoreBackend::new();
+        let id = snowflake_gen.generate();
+        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        backend.store(id, &data).unwrap();
+
+        let store = MockStore::new(Arc::new(backend));
+
+        // Try to load two read handles to the same Entity at once on
+        // the same thread.
+        //
+        // The main failure mode we want to check for here is deadlocking
+        // (due to trying to grab write access to the handle for
+        // initialization, say)
+        let handle_1 = store.load(id, Arc::new(ComponentManager::new())).unwrap();
+        let data_1 = handle_1.get().unwrap();
+
+        let handle_2 = store.load(id, Arc::new(ComponentManager::new())).unwrap();
+        let data_2 = handle_2.get().unwrap();
+
+        assert_eq!(data_1.id, data_2.id);
+        assert_eq!(data_1.field_a, data_2.field_a);
+        assert_eq!(data_1.field_b, data_2.field_b);
+
+        assert_eq!(data_1.id, data.id);
+        assert_eq!(data_1.field_a, data.field_a);
+        assert_eq!(data_1.field_b, data.field_b);
     }
 
     #[test]
