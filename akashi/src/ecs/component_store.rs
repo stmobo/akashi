@@ -15,7 +15,7 @@ use failure::Fail;
 /// Structs that implement this trait can be passed to
 /// [`ComponentManager::register_component`](super::ComponentManager::register_component)
 /// to allow Entities to load and store Component data.
-pub trait ComponentStore<T, U>
+pub trait ComponentBackend<T, U>
 where
     T: Entity + 'static,
     U: Component<T> + 'static,
@@ -38,7 +38,7 @@ where
 type ComponentLoadFn<T> =
     Box<dyn Fn(&T) -> Result<Option<Box<dyn Component<T> + 'static>>> + Sync + Send>;
 
-type ComponentStoreFn<T> =
+type ComponentBackendFn<T> =
     Box<dyn Fn(&T, Box<dyn Component<T> + 'static>) -> Result<()> + Sync + Send>;
 
 type ComponentExistsFn<T> = Box<dyn Fn(&T) -> Result<bool> + Sync + Send>;
@@ -46,10 +46,10 @@ type ComponentExistsFn<T> = Box<dyn Fn(&T) -> Result<bool> + Sync + Send>;
 type ComponentDeleteFn<T> = Box<dyn Fn(&T) -> Result<()> + Sync + Send>;
 
 /// Used internally by [`ComponentManager`](super::ComponentManager) as a
-/// proxy to [`ComponentStore`] trait methods.
+/// proxy to [`ComponentBackend`] trait methods.
 pub struct ComponentTypeData<T: Entity + 'static> {
     pub load: ComponentLoadFn<T>,
-    pub store: ComponentStoreFn<T>,
+    pub store: ComponentBackendFn<T>,
     pub exists: ComponentExistsFn<T>,
     pub delete: ComponentDeleteFn<T>,
 }
@@ -71,7 +71,7 @@ where
     pub fn new<U, V>(store: V) -> ComponentTypeData<T>
     where
         U: Component<T> + 'static,
-        V: ComponentStore<T, U> + Sync + Send + 'static,
+        V: ComponentBackend<T, U> + Sync + Send + 'static,
     {
         let s1 = Arc::new(store);
         let s2 = s1.clone();

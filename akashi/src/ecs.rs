@@ -9,7 +9,7 @@ pub mod entity_store;
 pub use component::{Component, ComponentManager};
 
 #[doc(inline)]
-pub use component_store::ComponentStore;
+pub use component_store::ComponentBackend;
 
 #[doc(inline)]
 pub use entity::Entity;

@@ -10,7 +10,7 @@ use failure::format_err;
 use crate::card::Card;
 use crate::components::Inventory;
 use crate::ecs::entity_store::SharedStore;
-use crate::ecs::{Component, ComponentManager, ComponentStore, Entity, Store, StoreBackend};
+use crate::ecs::{Component, ComponentManager, ComponentBackend, Entity, Store, StoreBackend};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::util::Result;
@@ -193,7 +193,7 @@ impl LocalInventoryStore {
     }
 }
 
-impl ComponentStore<Player, Inventory> for LocalInventoryStore {
+impl ComponentBackend<Player, Inventory> for LocalInventoryStore {
     fn exists(&self, player: &Player) -> Result<bool> {
         let inventories = self.backend.inventories.read().unwrap();
         Ok(inventories.contains_key(&player.id()))
@@ -339,7 +339,7 @@ where
     }
 }
 
-impl<T, U> ComponentStore<T, U> for LocalComponentStorage<T, U>
+impl<T, U> ComponentBackend<T, U> for LocalComponentStorage<T, U>
 where
     T: Entity + 'static,
     U: Component<T> + Clone + 'static,

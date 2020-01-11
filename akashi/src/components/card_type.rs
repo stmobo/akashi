@@ -4,7 +4,7 @@ use crate::card::Card;
 use crate::ecs::entity_store::{
     EntityStore, ReadReference, Store, StoreBackend, StoreHandle, WriteReference,
 };
-use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
+use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 use crate::util::Result;
 
@@ -120,15 +120,15 @@ impl AttachedCardType {
 
 impl Component<Card> for AttachedCardType {}
 
-/// Acts as a [`ComponentStore`](ComponentStore) for
+/// Acts as a [`ComponentBackend`](ComponentBackend) for
 /// [`AttachedCardTypes`](AttachedCardType) by wrapping another
-/// [`ComponentStore`](ComponentStore).
+/// [`ComponentBackend`](ComponentBackend).
 ///
 /// The wrapped storage type needs to implement loading and storing
-/// card type IDs via the `ComponentStore<Card, Snowflake>` trait.
+/// card type IDs via the `ComponentBackend<Card, Snowflake>` trait.
 pub struct CardTypeLayer<T, U>
 where
-    T: ComponentStore<Card, Snowflake> + 'static,
+    T: ComponentBackend<Card, Snowflake> + 'static,
     U: StoreBackend<CardType> + 'static,
 {
     component_backend: T,
@@ -138,7 +138,7 @@ where
 
 impl<T, U> CardTypeLayer<T, U>
 where
-    T: ComponentStore<Card, Snowflake> + 'static,
+    T: ComponentBackend<Card, Snowflake> + 'static,
     U: StoreBackend<CardType> + 'static,
 {
     /// Constructs a new `CardTypeLayer`.
@@ -155,9 +155,9 @@ where
     }
 }
 
-impl<T, U> ComponentStore<Card, AttachedCardType> for CardTypeLayer<T, U>
+impl<T, U> ComponentBackend<Card, AttachedCardType> for CardTypeLayer<T, U>
 where
-    T: ComponentStore<Card, Snowflake> + Sync + Send + 'static,
+    T: ComponentBackend<Card, Snowflake> + Sync + Send + 'static,
     U: StoreBackend<CardType> + Sync + Send + 'static,
 {
     fn load(&self, entity: &Card) -> Result<Option<AttachedCardType>> {

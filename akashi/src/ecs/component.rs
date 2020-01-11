@@ -1,6 +1,6 @@
 //! The internals of the [`Entity`]-[`Component`] attachment system.
 
-use super::component_store::{ComponentStore, ComponentTypeData};
+use super::component_store::{ComponentBackend, ComponentTypeData};
 use super::entity::Entity;
 use crate::util::Result;
 
@@ -66,7 +66,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
     pub fn register_component<U, V>(&mut self, name: &str, store: V)
     where
         U: Component<T> + 'static,
-        V: ComponentStore<T, U> + Sync + Send + 'static,
+        V: ComponentBackend<T, U> + Sync + Send + 'static,
     {
         self.component_types
             .insert(TypeId::of::<U>(), ComponentTypeData::new(store));
