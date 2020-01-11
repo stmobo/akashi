@@ -4,7 +4,7 @@ use serde::Deserialize;
 use actix_web::{web, HttpResponse, Scope};
 
 use akashi::components::Inventory;
-use akashi::store::SharedStore;
+use akashi::ecs::entity_store::SharedStore;
 use akashi::{Card, ComponentManager, Entity, Player, Snowflake, Store, StoreBackend};
 
 use crate::models::{CardModel, CardName, CardType, CardValue};

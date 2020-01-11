@@ -3,6 +3,7 @@
 pub mod component;
 pub mod component_store;
 pub mod entity;
+pub mod entity_store;
 
 #[doc(inline)]
 pub use component::{Component, ComponentManager};
@@ -12,6 +13,9 @@ pub use component_store::ComponentStore;
 
 #[doc(inline)]
 pub use entity::Entity;
+
+#[doc(inline)]
+pub use entity_store::{EntityStore, Store, StoreBackend, StoreHandle};
 
 pub use component::TypeNotFoundError;
 pub use component_store::DowncastError;

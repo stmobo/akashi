@@ -28,7 +28,6 @@ pub mod ecs;
 pub mod local_storage;
 pub mod player;
 pub mod snowflake;
-pub mod store;
 mod util;
 
 #[doc(inline)]
@@ -38,10 +37,10 @@ pub use card::Card;
 pub use ecs::{Component, ComponentManager, ComponentStore, Entity};
 
 #[doc(inline)]
+pub use ecs::entity_store::{EntityStore, Store, StoreBackend, StoreHandle};
+
+#[doc(inline)]
 pub use player::Player;
 
 #[doc(inline)]
 pub use snowflake::{Snowflake, SnowflakeGenerator};
-
-#[doc(inline)]
-pub use store::{EntityStore, Store, StoreBackend, StoreHandle};

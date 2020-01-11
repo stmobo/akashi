@@ -11,7 +11,7 @@ use stable_deref_trait::CloneStableDeref;
 use dashmap::DashMap;
 use parking_lot::{Once, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::ecs::{ComponentManager, Entity};
+use super::{ComponentManager, Entity};
 use crate::snowflake::Snowflake;
 use crate::util::Result;
 

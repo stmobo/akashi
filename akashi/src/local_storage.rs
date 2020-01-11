@@ -9,10 +9,10 @@ use failure::format_err;
 
 use crate::card::Card;
 use crate::components::Inventory;
-use crate::ecs::{Component, ComponentManager, ComponentStore, Entity};
+use crate::ecs::entity_store::SharedStore;
+use crate::ecs::{Component, ComponentManager, ComponentStore, Entity, Store, StoreBackend};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
-use crate::store::{SharedStore, Store, StoreBackend};
 use crate::util::Result;
 
 /// A convenient container for [`Player`] and [`Card`] storage in-memory.

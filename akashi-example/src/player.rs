@@ -4,7 +4,7 @@ use actix_web::{web, HttpResponse, Scope};
 use failure::Error;
 use serde::Deserialize;
 
-use akashi::store::{SharedStore, Store, StoreBackend};
+use akashi::ecs::entity_store::{SharedStore, Store, StoreBackend};
 use akashi::{ComponentManager, Entity, Player, Snowflake};
 
 use crate::models::{PlayerModel, ResourceA};
