@@ -10,7 +10,7 @@ use failure::format_err;
 use crate::card::Card;
 use crate::components::Inventory;
 use crate::ecs::entity_store::SharedStore;
-use crate::ecs::{Component, ComponentManager, ComponentBackend, Entity, Store, StoreBackend};
+use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity, EntityBackend, Store};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::util::Result;
@@ -20,14 +20,14 @@ use crate::util::Result;
 /// This is mainly meant for use in testing and for prototyping. It has
 /// no provisions for storing data to a persistent medium.
 pub struct SharedLocalStore {
-    backend: Arc<LocalStoreBackend>,
-    players: Store<Player, LocalStoreBackend>,
-    cards: Store<Card, LocalStoreBackend>,
+    backend: Arc<LocalEntityBackend>,
+    players: Store<Player, LocalEntityBackend>,
+    cards: Store<Card, LocalEntityBackend>,
 }
 
 impl SharedLocalStore {
     pub fn new() -> SharedLocalStore {
-        let backend = Arc::new(LocalStoreBackend::new());
+        let backend = Arc::new(LocalEntityBackend::new());
         SharedLocalStore {
             players: Store::new(backend.clone()),
             cards: Store::new(backend.clone()),
@@ -35,15 +35,15 @@ impl SharedLocalStore {
         }
     }
 
-    pub fn backend(&self) -> Arc<LocalStoreBackend> {
+    pub fn backend(&self) -> Arc<LocalEntityBackend> {
         self.backend.clone()
     }
 
-    pub fn players(&self) -> &Store<Player, LocalStoreBackend> {
+    pub fn players(&self) -> &Store<Player, LocalEntityBackend> {
         &self.players
     }
 
-    pub fn cards(&self) -> &Store<Card, LocalStoreBackend> {
+    pub fn cards(&self) -> &Store<Card, LocalEntityBackend> {
         &self.cards
     }
 }
@@ -54,29 +54,29 @@ impl Default for SharedLocalStore {
     }
 }
 
-impl SharedStore<Player, LocalStoreBackend> for SharedLocalStore {
-    fn get_store<'a>(&'a self) -> &'a Store<Player, LocalStoreBackend> {
+impl SharedStore<Player, LocalEntityBackend> for SharedLocalStore {
+    fn get_store<'a>(&'a self) -> &'a Store<Player, LocalEntityBackend> {
         self.players()
     }
 }
 
-impl SharedStore<Card, LocalStoreBackend> for SharedLocalStore {
-    fn get_store<'a>(&'a self) -> &'a Store<Card, LocalStoreBackend> {
+impl SharedStore<Card, LocalEntityBackend> for SharedLocalStore {
+    fn get_store<'a>(&'a self) -> &'a Store<Card, LocalEntityBackend> {
         self.cards()
     }
 }
 
 /// In-memory storage backend for [`Players`](Player), [`Cards`](Card), and
 /// [`Inventories`](Inventory).
-pub struct LocalStoreBackend {
+pub struct LocalEntityBackend {
     players: RwLock<HashMap<Snowflake, Player>>,
     cards: RwLock<HashMap<Snowflake, Card>>,
     inventories: RwLock<HashMap<Snowflake, Vec<Snowflake>>>,
 }
 
-impl LocalStoreBackend {
-    fn new() -> LocalStoreBackend {
-        LocalStoreBackend {
+impl LocalEntityBackend {
+    fn new() -> LocalEntityBackend {
+        LocalEntityBackend {
             players: RwLock::new(HashMap::new()),
             cards: RwLock::new(HashMap::new()),
             inventories: RwLock::new(HashMap::new()),
@@ -84,13 +84,13 @@ impl LocalStoreBackend {
     }
 }
 
-impl Default for LocalStoreBackend {
-    fn default() -> LocalStoreBackend {
-        LocalStoreBackend::new()
+impl Default for LocalEntityBackend {
+    fn default() -> LocalEntityBackend {
+        LocalEntityBackend::new()
     }
 }
 
-impl StoreBackend<Player> for LocalStoreBackend {
+impl EntityBackend<Player> for LocalEntityBackend {
     fn exists(&self, id: Snowflake) -> Result<bool> {
         let players = self.players.read().unwrap();
         Ok(players.contains_key(&id))
@@ -137,7 +137,7 @@ impl StoreBackend<Player> for LocalStoreBackend {
     }
 }
 
-impl StoreBackend<Card> for LocalStoreBackend {
+impl EntityBackend<Card> for LocalEntityBackend {
     fn exists(&self, id: Snowflake) -> Result<bool> {
         let cards = self.cards.read().unwrap();
         Ok(cards.contains_key(&id))
@@ -182,13 +182,13 @@ impl StoreBackend<Card> for LocalStoreBackend {
 }
 
 /// A storage backend for [`Inventories`](Inventory) that uses a
-/// [`LocalStoreBackend`].
+/// [`LocalEntityBackend`].
 pub struct LocalInventoryStore {
-    backend: Arc<LocalStoreBackend>,
+    backend: Arc<LocalEntityBackend>,
 }
 
 impl LocalInventoryStore {
-    pub fn new(backend: Arc<LocalStoreBackend>) -> LocalInventoryStore {
+    pub fn new(backend: Arc<LocalEntityBackend>) -> LocalInventoryStore {
         LocalInventoryStore { backend }
     }
 }
@@ -269,7 +269,7 @@ where
     }
 }
 
-impl<T> StoreBackend<T> for LocalEntityStorage<T>
+impl<T> EntityBackend<T> for LocalEntityStorage<T>
 where
     T: Entity + Clone + 'static,
 {

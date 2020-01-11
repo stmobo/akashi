@@ -4,7 +4,7 @@ use actix_web::{web, HttpResponse, Scope};
 use failure::Error;
 use serde::Deserialize;
 
-use akashi::ecs::entity_store::{SharedStore, Store, StoreBackend};
+use akashi::ecs::entity_store::{SharedStore, Store, EntityBackend};
 use akashi::{ComponentManager, Entity, Player, Snowflake};
 
 use crate::models::{PlayerModel, ResourceA};
@@ -19,7 +19,7 @@ async fn list_players<T, U>(
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let cm = cm.into_inner();
     let players: Vec<PlayerModel> = web::block(move || -> Result<Vec<PlayerModel>, Error> {
@@ -50,7 +50,7 @@ async fn get_player<T, U>(
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
     let cm = cm.into_inner();
@@ -88,7 +88,7 @@ async fn resource_a_transaction<T, U>(
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let player_id = path.0;
     let transaction = transaction.into_inner();
@@ -156,7 +156,7 @@ async fn delete_player<T, U>(
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
     let cm = cm.into_inner();
@@ -186,7 +186,7 @@ async fn new_player<T, U>(
 ) -> Result<HttpResponse, Error>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let cm = cm.into_inner();
     let pl = web::block(move || -> Result<PlayerModel, Error> {
@@ -224,7 +224,7 @@ pub fn bind_routes<T, U>(
 ) -> Scope
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     scope
         .app_data(store)

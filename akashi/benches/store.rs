@@ -2,7 +2,7 @@ extern crate num_cpus;
 extern crate rayon;
 
 use akashi::ecs::entity_store::{StoreHandle, StoreReference};
-use akashi::{Card, ComponentManager, Entity, Snowflake, SnowflakeGenerator, Store, StoreBackend};
+use akashi::{Card, ComponentManager, Entity, EntityBackend, Snowflake, SnowflakeGenerator, Store};
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use crossbeam::queue::SegQueue;
 use failure::Error;
@@ -14,7 +14,7 @@ const N_ELEMS: u64 = 4 * 1024;
 
 struct NullBackend {}
 
-impl<T> StoreBackend<T> for NullBackend
+impl<T> EntityBackend<T> for NullBackend
 where
     T: Entity + 'static,
 {

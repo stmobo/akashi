@@ -15,7 +15,7 @@ pub use component_store::ComponentBackend;
 pub use entity::Entity;
 
 #[doc(inline)]
-pub use entity_store::{EntityStore, Store, StoreBackend, StoreHandle};
+pub use entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
 
 pub use component::TypeNotFoundError;
 pub use component_store::DowncastError;

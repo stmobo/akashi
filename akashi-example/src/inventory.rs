@@ -5,7 +5,7 @@ use actix_web::{web, HttpResponse, Scope};
 
 use akashi::components::Inventory;
 use akashi::ecs::entity_store::SharedStore;
-use akashi::{Card, ComponentManager, Entity, Player, Snowflake, Store, StoreBackend};
+use akashi::{Card, ComponentManager, Entity, Player, Snowflake, Store, EntityBackend};
 
 use crate::models::{CardModel, CardName, CardType, CardValue};
 use crate::utils;
@@ -21,7 +21,7 @@ async fn get_inventory<T, U>(
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let id: Snowflake = path.0;
 
@@ -77,7 +77,7 @@ async fn add_to_inventory<T, U>(
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + StoreBackend<Card> + Send + Sync + 'static,
+    U: EntityBackend<Player> + EntityBackend<Card> + Send + Sync + 'static,
 {
     let pl_id = path.0;
     let pl_cm = pl_cm.into_inner();
@@ -146,7 +146,7 @@ async fn get_card<T, U>(
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let pl_id = path.0;
     let card_id = path.1;
@@ -180,7 +180,7 @@ async fn delete_card<T, U>(
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let pl_id = path.0;
     let card_id = path.1;
@@ -223,7 +223,7 @@ async fn move_card<T, U>(
 ) -> Result<HttpResponse>
 where
     T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + Send + Sync + 'static,
+    U: EntityBackend<Player> + Send + Sync + 'static,
 {
     let src_player_id = path.0;
     let card_id = path.1;
@@ -278,7 +278,7 @@ pub fn bind_routes<T, U>(
 ) -> Scope
 where
     T: SharedStore<Player, U> + SharedStore<Card, U> + Send + Sync + 'static,
-    U: StoreBackend<Player> + StoreBackend<Card> + Send + Sync + 'static,
+    U: EntityBackend<Player> + EntityBackend<Card> + Send + Sync + 'static,
 {
     scope
         .app_data(store)

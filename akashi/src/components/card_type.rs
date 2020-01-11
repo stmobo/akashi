@@ -2,7 +2,7 @@
 
 use crate::card::Card;
 use crate::ecs::entity_store::{
-    EntityStore, ReadReference, Store, StoreBackend, StoreHandle, WriteReference,
+    EntityBackend, EntityStore, ReadReference, Store, StoreHandle, WriteReference,
 };
 use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
@@ -84,7 +84,7 @@ pub struct AttachedCardType {
 
 impl AttachedCardType {
     /// Constructs a new `AttachedCardType` instance.
-    pub fn new<T: StoreBackend<CardType> + Sync + Send + 'static>(
+    pub fn new<T: EntityBackend<CardType> + Sync + Send + 'static>(
         type_id: Snowflake,
         store: Arc<Store<CardType, T>>,
         component_manager: Arc<ComponentManager<CardType>>,
@@ -129,7 +129,7 @@ impl Component<Card> for AttachedCardType {}
 pub struct CardTypeLayer<T, U>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: StoreBackend<CardType> + 'static,
+    U: EntityBackend<CardType> + 'static,
 {
     component_backend: T,
     entity_store: Arc<Store<CardType, U>>,
@@ -139,7 +139,7 @@ where
 impl<T, U> CardTypeLayer<T, U>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: StoreBackend<CardType> + 'static,
+    U: EntityBackend<CardType> + 'static,
 {
     /// Constructs a new `CardTypeLayer`.
     pub fn new(
@@ -158,7 +158,7 @@ where
 impl<T, U> ComponentBackend<Card, AttachedCardType> for CardTypeLayer<T, U>
 where
     T: ComponentBackend<Card, Snowflake> + Sync + Send + 'static,
-    U: StoreBackend<CardType> + Sync + Send + 'static,
+    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     fn load(&self, entity: &Card) -> Result<Option<AttachedCardType>> {
         let attached_id: Option<Snowflake> = self.component_backend.load(entity)?;

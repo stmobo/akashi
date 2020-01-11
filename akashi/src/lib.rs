@@ -37,7 +37,7 @@ pub use card::Card;
 pub use ecs::{Component, ComponentBackend, ComponentManager, Entity};
 
 #[doc(inline)]
-pub use ecs::entity_store::{EntityStore, Store, StoreBackend, StoreHandle};
+pub use ecs::entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
 
 #[doc(inline)]
 pub use player::Player;

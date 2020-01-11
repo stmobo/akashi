@@ -72,7 +72,7 @@ pub fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteRefere
 pub trait SharedStore<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
+    U: EntityBackend<T> + 'static,
 {
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
@@ -88,7 +88,7 @@ pub struct StoreHandle<T>
 where
     T: Entity + 'static,
 {
-    backend: Arc<dyn StoreBackend<T> + Sync + Send + 'static>,
+    backend: Arc<dyn EntityBackend<T> + Sync + Send + 'static>,
     id: Snowflake,
     object: Option<T>,
 }
@@ -99,7 +99,7 @@ where
 {
     fn new<U>(backend: Arc<U>, id: Snowflake, object: Option<T>) -> StoreHandle<T>
     where
-        U: StoreBackend<T> + Sync + Send + 'static,
+        U: EntityBackend<T> + Sync + Send + 'static,
     {
         StoreHandle {
             backend,
@@ -189,7 +189,7 @@ where
 pub struct Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
+    U: EntityBackend<T> + 'static,
 {
     backend: Arc<U>,
     refs: DashMap<Snowflake, StoredHandleData<T>>,
@@ -198,7 +198,7 @@ where
 impl<T, U> Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + Sync + Send + 'static,
+    U: EntityBackend<T> + Sync + Send + 'static,
 {
     /// Creates a new `Store` using the given storage backend.
     pub fn new(backend: Arc<U>) -> Store<T, U> {
@@ -376,7 +376,7 @@ where
 /// [`Entities`](Entity) objects.
 ///
 /// For example, you can use it as a way to access [`Stores`](Store)
-/// without having to carry around a [`StoreBackend`](StoreBackend)
+/// without having to carry around a [`EntityBackend`](EntityBackend)
 /// type parameter everywhere. This comes at the cost of dynamic dispatch
 /// overhead, though.
 pub trait EntityStore<T>
@@ -404,7 +404,7 @@ where
 impl<T, U> EntityStore<T> for Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + Sync + Send + 'static,
+    U: EntityBackend<T> + Sync + Send + 'static,
 {
     fn load(
         &self,
@@ -441,7 +441,7 @@ where
 impl<T, U> fmt::Debug for Store<T, U>
 where
     T: Entity + 'static,
-    U: StoreBackend<T> + 'static,
+    U: EntityBackend<T> + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -459,7 +459,7 @@ where
 /// Structs that implement this trait can be used as backing storage
 /// for [`Entities`](Entity) such as [`Players`](crate::Player) and
 /// [`Cards`](crate::Card), and can be passed to [`Store::new`].
-pub trait StoreBackend<T: Entity + 'static> {
+pub trait EntityBackend<T: Entity + 'static> {
     /// Loads data for an [`Entity`] from storage, if any [`Entity`] with
     /// the given ID exists.
     fn load(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<Option<T>>;
@@ -531,14 +531,14 @@ mod tests {
         }
     }
 
-    struct MockStoreBackend {
+    struct MockEntityBackend {
         data: RwLock<HashMap<Snowflake, MockStoredData>>,
         remove_on_load: bool,
     }
 
-    impl MockStoreBackend {
-        fn new() -> MockStoreBackend {
-            MockStoreBackend {
+    impl MockEntityBackend {
+        fn new() -> MockEntityBackend {
+            MockEntityBackend {
                 data: RwLock::new(HashMap::new()),
                 remove_on_load: false,
             }
@@ -548,7 +548,7 @@ mod tests {
             self.remove_on_load = flag;
         }
     }
-    impl StoreBackend<MockStoredData> for MockStoreBackend {
+    impl EntityBackend<MockStoredData> for MockEntityBackend {
         fn exists(&self, id: Snowflake) -> Result<bool> {
             let map = self.data.read().unwrap();
             Ok(map.contains_key(&id))
@@ -600,12 +600,12 @@ mod tests {
         }
     }
 
-    type MockStore = Store<MockStoredData, MockStoreBackend>;
+    type MockStore = Store<MockStoredData, MockEntityBackend>;
 
     #[test]
     fn test_exists() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = Arc::new(MockStoreBackend::new());
+        let backend = Arc::new(MockEntityBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
         backend.store(*data.id(), &data).unwrap();
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn test_load_nonexistent() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = Arc::new(MockStoreBackend::new());
+        let backend = Arc::new(MockEntityBackend::new());
         let store = MockStore::new(backend);
         let handle = store
             .load(snowflake_gen.generate(), Arc::new(ComponentManager::new()))
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_load() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = Arc::new(MockStoreBackend::new());
+        let backend = Arc::new(MockEntityBackend::new());
         let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
 
         backend.store(*data.id(), &data).unwrap();
@@ -653,7 +653,7 @@ mod tests {
     fn test_concurrent_load() {
         // Create some test data to load.
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = Arc::new(MockStoreBackend::new());
+        let backend = Arc::new(MockEntityBackend::new());
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
         backend.store(id, &data).unwrap();
@@ -694,7 +694,7 @@ mod tests {
     fn test_concurrent_access() {
         // Create some test data to load.
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let mut backend = MockStoreBackend::new();
+        let mut backend = MockEntityBackend::new();
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
 
@@ -772,7 +772,7 @@ mod tests {
     fn test_multiple_single_thread_access() {
         // Create some test data to load.
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let backend = MockStoreBackend::new();
+        let backend = MockEntityBackend::new();
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
         backend.store(id, &data).unwrap();
@@ -806,7 +806,7 @@ mod tests {
         let id = snowflake_gen.generate();
         let data = MockStoredData::new(id, "foo".to_owned(), 1);
 
-        let backend = Arc::new(MockStoreBackend::new());
+        let backend = Arc::new(MockEntityBackend::new());
         let store = MockStore::new(backend);
         let cm = Arc::new(ComponentManager::new());
 
