@@ -18,7 +18,7 @@ extern crate failure;
 #[macro_use]
 extern crate rental;
 
-extern crate chashmap;
+extern crate dashmap;
 extern crate downcast_rs;
 extern crate failure_derive;
 

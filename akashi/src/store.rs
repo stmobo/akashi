@@ -1,7 +1,6 @@
 //! Akashi's storage system for [`Entities`](Entity).
 
 use std::any;
-use std::cell::Cell;
 use std::fmt;
 use std::ops::Deref;
 use std::sync::{Arc, Weak};
@@ -9,8 +8,7 @@ use std::sync::{Arc, Weak};
 extern crate stable_deref_trait;
 use stable_deref_trait::CloneStableDeref;
 
-use chashmap::CHashMap;
-use failure::err_msg;
+use dashmap::DashMap;
 use parking_lot::{Once, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::ecs::{ComponentManager, Entity};
@@ -194,7 +192,7 @@ where
     U: StoreBackend<T> + 'static,
 {
     backend: Arc<U>,
-    refs: CHashMap<Snowflake, StoredHandleData<T>>,
+    refs: DashMap<Snowflake, StoredHandleData<T>>,
 }
 
 impl<T, U> Store<T, U>
@@ -206,61 +204,36 @@ where
     pub fn new(backend: Arc<U>) -> Store<T, U> {
         Store {
             backend,
-            refs: CHashMap::new(),
+            refs: DashMap::new(),
         }
     }
 
     /// Retrieves or creates a possibly-uninitialized [`StoreHandle`] from
     /// the underlying hashmap.
-    fn get_handle(&self, id: Snowflake) -> Result<HandleData<T>> {
-        let ret_cell: Cell<Result<HandleData<T>>> = Cell::new(Err(err_msg("unknown load error")));
-
-        // All of this needs to be done with a write lock on the bucket
-        // for this hashmap entry.
-        //
-        // If we just did a "is there a valid handle in the map already" check
-        // and then inserted a new handle into the map with no
-        // synchronization, then that could lead to race conditions:
-        // Two threads see a "no valid handle" state at the same time,
-        // then try to create handles at the same time and stomp over one
-        // another.
-        self.refs.alter(id, |val| {
-            // If a previously-retrieved handle is still around, use that.
-            if let Some(data) = val {
-                if let Some(strong) = data.handle.upgrade() {
-                    // use _e here so that the compiler stops complaining
-                    // about us not using a Result
-                    let ret = HandleData {
-                        initializer: data.initializer.clone(),
-                        handle: strong,
-                    };
-
-                    let _e = ret_cell.replace(Ok(ret));
-                    return Some(data);
-                }
-            }
-
-            // Create a new handle and store it into the hashmap.
-            let handle: StoreHandle<T> = StoreHandle::new(self.backend.clone(), id, None);
-            let strong = Arc::new(RwLock::new(handle));
-            let weak = Arc::downgrade(&strong);
-            let initializer = Arc::new(Once::new());
-
-            let ret = HandleData {
-                initializer: initializer.clone(),
-                handle: strong,
-            };
-
-            let stored = StoredHandleData {
-                initializer,
-                handle: weak,
-            };
-
-            let _e = ret_cell.replace(Ok(ret));
-            Some(stored)
+    fn get_handle(&self, id: Snowflake) -> HandleData<T> {
+        let mut entry = self.refs.entry(id).or_insert_with(|| StoredHandleData {
+            initializer: Arc::new(Once::new()),
+            handle: Weak::new(),
         });
 
-        ret_cell.into_inner()
+        if let Some(strong) = entry.handle.upgrade() {
+            HandleData {
+                initializer: entry.initializer.clone(),
+                handle: strong,
+            }
+        } else {
+            let handle: StoreHandle<T> = StoreHandle::new(self.backend.clone(), id, None);
+            let initializer = Arc::new(Once::new());
+            let strong = Arc::new(RwLock::new(handle));
+
+            entry.handle = Arc::downgrade(&strong);
+            entry.initializer = initializer.clone();
+
+            HandleData {
+                initializer,
+                handle: strong,
+            }
+        }
     }
 
     // Initializes a handle by loading data from the backend.
@@ -298,7 +271,7 @@ where
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
     ) -> Result<StoreReference<StoreHandle<T>>> {
-        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id))?;
         Ok(handle_data.handle.clone())
     }
 
@@ -314,7 +287,7 @@ where
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
     ) -> Result<ReadReference<StoreHandle<T>>> {
-        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id))?;
         Ok(read_store_reference(handle_data.handle))
     }
 
@@ -330,7 +303,7 @@ where
         id: Snowflake,
         cm: Arc<ComponentManager<T>>,
     ) -> Result<WriteReference<StoreHandle<T>>> {
-        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id))?;
         Ok(write_store_reference(handle_data.handle))
     }
 
@@ -338,7 +311,7 @@ where
     /// stored [`Entity`] data with the same ID.
     pub fn store(&self, object: T) -> Result<()> {
         let id = object.id();
-        let handle_data = self.get_handle(id)?;
+        let handle_data = self.get_handle(id);
 
         // If the initializer gets called, `object` gets set to None,
         // and initializer_result is filled in with the result value.
@@ -381,7 +354,7 @@ where
 
     /// Checks to see if an [`Entity`] with the given ID exists.
     pub fn exists(&self, id: Snowflake) -> Result<bool> {
-        let handle_data = self.get_handle(id)?;
+        let handle_data = self.get_handle(id);
 
         if handle_data.initializer.state().done() {
             let read_lock = handle_data.handle.read();
@@ -698,7 +671,7 @@ mod tests {
 
             let handle = thread::spawn(move || {
                 b_clone.wait();
-                let wrapper = s_clone.get_handle(id).unwrap();
+                let wrapper = s_clone.get_handle(id);
                 wrapper
             });
 
@@ -706,7 +679,7 @@ mod tests {
         }
 
         barrier.wait();
-        let our_wrapper = store.get_handle(id).unwrap();
+        let our_wrapper = store.get_handle(id);
 
         for thread in threads {
             // Check what the other threads got for a handle.
