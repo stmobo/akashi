@@ -54,7 +54,7 @@ rental! {
 
 pub use handle_ref::{HandleReadRef, HandleWriteRef};
 
-type StoreReference<T> = Arc<RwLock<T>>;
+pub type StoreReference<T> = Arc<RwLock<T>>;
 type WeakStoreReference<T> = Weak<RwLock<T>>;
 pub type ReadReference<T> = HandleReadRef<StoreReference<T>, T>;
 pub type WriteReference<T> = HandleWriteRef<StoreReference<T>, T>;
@@ -217,6 +217,13 @@ where
 
         // All of this needs to be done with a write lock on the bucket
         // for this hashmap entry.
+        //
+        // If we just did a "is there a valid handle in the map already" check
+        // and then inserted a new handle into the map with no
+        // synchronization, then that could lead to race conditions:
+        // Two threads see a "no valid handle" state at the same time,
+        // then try to create handles at the same time and stomp over one
+        // another.
         self.refs.alter(id, |val| {
             // If a previously-retrieved handle is still around, use that.
             if let Some(data) = val {
@@ -284,6 +291,15 @@ where
             Err(e) => Err(e),
             Ok(_v) => Ok(handle_data),
         }
+    }
+
+    pub fn load_handle(
+        &self,
+        id: Snowflake,
+        cm: Arc<ComponentManager<T>>,
+    ) -> Result<StoreReference<StoreHandle<T>>> {
+        let handle_data = self.initialize_handle(id, cm, self.get_handle(id)?)?;
+        Ok(handle_data.handle.clone())
     }
 
     /// Gets an immutable reference to the handle for the [`Entity`]

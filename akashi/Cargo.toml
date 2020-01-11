@@ -19,3 +19,13 @@ chashmap = "2.2"
 rental = "0.5"
 stable_deref_trait = "1.1"
 parking_lot = "0.10"
+
+[dev-dependencies]
+criterion = "0.3"
+rayon = "1.3"
+num_cpus = "1"
+crossbeam = "0.7"
+
+[[bench]]
+name = "store"
+harness = false
