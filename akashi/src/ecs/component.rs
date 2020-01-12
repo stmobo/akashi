@@ -26,6 +26,10 @@ use downcast_rs::{Downcast, DowncastSync};
 pub trait Component<T>: Downcast + Sync + Send {}
 downcast_rs::impl_downcast!(Component<T>);
 
+/// Used as a helper for downcasting [`ComponentManagers`](ComponentManager).
+///
+/// You probably shouldn't use this yourself.
+#[doc(hidden)]
 pub trait ComponentManagerDowncast: DowncastSync + Sync + Send + fmt::Debug {}
 downcast_rs::impl_downcast!(sync ComponentManagerDowncast);
 

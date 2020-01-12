@@ -371,11 +371,22 @@ where
     }
 }
 
+/// Used as a 'stepping stone' when downcasting from an `EntityStoreDowncast`
+/// trait object to an `EntityStore<T>`.
+///
+/// We can't downcast directly between two trait objects, so we need to
+/// add an intermediate concrete type that `EntityStoreDowncast` can be
+/// downcasted to, and from which we can further downcast to `EntityStore`.
 #[doc(hidden)]
 pub struct EntityStoreDowncastHelper<T: Entity + Sync + Send + 'static>(
     pub Box<dyn EntityStore<T> + 'static>,
 );
 
+/// A downcastable trait that allows for erasing the [`Entity`] type parameter
+/// from [`EntityStore`] trait objects.
+///
+/// You probably shouldn't use this yourself.
+#[doc(hidden)]
 pub trait EntityStoreDowncast: Downcast + Send + Sync + 'static {}
 downcast_rs::impl_downcast!(EntityStoreDowncast);
 

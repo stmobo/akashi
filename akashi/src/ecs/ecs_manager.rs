@@ -29,17 +29,112 @@ pub struct EntityTypeData {
 ///
 /// As with [`Store`](super::Store) and [`ComponentManager`], any errors reported
 /// by backend storage drivers will bubble up through `EntityManager` methods.
+///
+/// Additionally, attempts to use any of the storage access methods
+/// (`load`, `store`, `delete`, etc.) with types that do not exist will return
+/// a [`TypeNotFoundError`].
+///
+/// # Example
+///
+/// ```
+/// use akashi::Card;
+/// use akashi::EntityManager;
+/// use akashi::Component;
+/// use akashi::Entity;
+/// use akashi::local_storage::{LocalEntityStorage, LocalComponentStorage};
+///
+/// // Define a simple component type we can attach to our cards.
+/// #[derive(Clone)]
+/// struct MyCardComponent {
+///     name: String,
+///     value: u64
+/// }
+///
+/// impl Component<Card> for MyCardComponent {};
+///
+/// let mut manager = EntityManager::new();
+///
+/// // Create and register a simple storage backend for Cards.
+/// let card_backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+/// manager.register_entity(card_backend).unwrap();
+///
+/// // Create and register a simple storage backend for MyCardComponent.
+/// let component_backend: LocalComponentStorage<Card, MyCardComponent>
+///     = LocalComponentStorage::new();
+/// manager.register_component("MyCardComponent", component_backend).unwrap();
+///
+/// // Create a new Card, and attach some Component data to it.
+/// let mut card: Card = manager.create(123456789).unwrap();
+/// card.set_component(MyCardComponent {
+///     name: String::from("My Card"),
+///     value: 100,
+/// }).unwrap();
+///
+/// // Store the card we just made.
+/// manager.store(card).unwrap();
+///
+/// // It should exist in storage now.
+/// assert!(manager.exists::<Card>(123456789).unwrap());
+///
+/// // If we list stored Card IDs now, we'll see it:
+/// let card_ids = manager.keys::<Card>(0, 20).unwrap();
+/// assert_eq!(card_ids.len(), 1);
+/// assert_eq!(card_ids[0], 123456789);
+///
+/// {
+///     // Load the card again from storage.
+///     let handle = manager.load::<Card>(123456789).unwrap();
+///     let card = handle.get().unwrap();
+///
+///     // Load the component data we attached to the card earlier.
+///     let my_data: MyCardComponent = card.get_component().unwrap().unwrap();
+///
+///     assert_eq!(my_data.name, "My Card");
+///     assert_eq!(my_data.value, 100);
+/// }
+///
+/// // Finally, delete the card from storage.
+/// manager.delete::<Card>(123456789).unwrap();
+/// assert!(!manager.exists::<Card>(123456789).unwrap());
+/// ```
 pub struct EntityManager {
     types: HashMap<TypeId, EntityTypeData>,
 }
 
 impl EntityManager {
+    /// Creates a new `EntityManager`.
     pub fn new() -> EntityManager {
         EntityManager {
             types: HashMap::new(),
         }
     }
 
+    /// Registers an [`Entity`] type and its associated storage backend.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the [`Entity`] type has already
+    /// been registered before.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// let mut manager = EntityManager::new();
+    ///
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    ///
+    /// // Registered entity type is auto-deduced from the backend type.
+    /// assert!(manager.register_entity(backend).is_ok());
+    ///
+    /// let new_backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    ///
+    /// // Trying to register an entity type twice fails.
+    /// assert!(manager.register_entity(new_backend).is_err());
+    /// ```
     pub fn register_entity<T, U>(&mut self, backend: U) -> Result<()>
     where
         T: Entity + Sync + Send + 'static,
@@ -63,6 +158,40 @@ impl EntityManager {
         Ok(())
     }
 
+    /// Registers an [`Component`] type and its associated storage backend.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///  - the [`Component`]'s associated [`Entity`] type has not been registered,
+    ///  - the [`Component`] type has already been registered before, or
+    ///  - there exist any [`Entity`] instances using the stored [`ComponentManager`]
+    ///    (as then mutating the [`ComponentManager`]'s internal map of registered
+    ///     types would not be safe).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::{LocalEntityStorage, LocalComponentStorage};
+    /// use akashi::Player;
+    /// use akashi::components::Resource;
+    ///
+    /// // Create a new EntityManager and register a storage backend for Players.
+    /// let mut manager = EntityManager::new();
+    /// let player_backend: LocalEntityStorage<Player> = LocalEntityStorage::new();
+    /// manager.register_entity(player_backend).unwrap();
+    ///
+    /// let rsc_backend: LocalComponentStorage<Player, Resource> = LocalComponentStorage::new();
+    ///
+    /// // Registered component type is auto-deduced from the backend type.
+    /// assert!(manager.register_component("Resource", rsc_backend).is_ok());
+    ///
+    /// let rsc_backend: LocalComponentStorage<Player, Resource> = LocalComponentStorage::new();
+    ///
+    /// // Trying to register a component type twice fails.
+    /// assert!(manager.register_component("Resource", rsc_backend).is_err());
+    /// ```
     pub fn register_component<T, U, V>(&mut self, name: &str, backend: V) -> Result<()>
     where
         T: Entity + Sync + Send + 'static,
@@ -128,6 +257,31 @@ impl EntityManager {
         Some(&*store_ref.0)
     }
 
+    /// Gets a direct reference to the underlying [`Store`](super::Store)
+    /// for an [`Entity`] type, if registered.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    /// use akashi::ecs::Store;
+    ///
+    /// // Set up a new EntityManager that can store Cards:
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // Create a new Card and store it:
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// let store: &Store<Card, LocalEntityStorage<Card>>;
+    /// store = manager.get_store().unwrap();
+    ///
+    /// assert!(store.exists(123456789).unwrap());
+    /// ```
     pub fn get_store<'a, T, U>(&'a self) -> Option<&'a Store<T, U>>
     where
         T: Entity + Sync + Send + 'static,
@@ -144,6 +298,73 @@ impl EntityManager {
         store_ref.0.downcast_ref::<Store<T, U>>()
     }
 
+    /// Gets the underlying [`ComponentManager`] for an [`Entity`] type,
+    /// if registered.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::ecs::ComponentManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    /// use std::sync::Arc;
+    /// use std::ptr;
+    ///
+    /// // Set up a new EntityManager that can store Cards:
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // A ComponentManager will be automatically created for Card entities:
+    /// let component_manager: Arc<ComponentManager<Card>>;
+    /// component_manager = manager.get_component_manager().unwrap();
+    ///
+    /// // Create a new Card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    ///
+    /// // The new card will use the same ComponentManager we got back earlier.
+    /// assert!(ptr::eq(card.component_manager(), &*component_manager));
+    /// ```
+    pub fn get_component_manager<T>(&self) -> Option<Arc<ComponentManager<T>>>
+    where
+        T: Entity + Sync + Send + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        let type_data = self.types.get(&type_id)?;
+
+        Some(
+            type_data
+                .component_manager
+                .clone()
+                .downcast_arc::<ComponentManager<T>>()
+                .expect("failed to downcast ComponentManager"),
+        )
+    }
+
+    /// Creates a new [`Entity`] of a previously-registered type.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::Player;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// // Set up a new EntityManager that can store Cards (but not Players):
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // An object of the requested type is returned if the type was previously registered.
+    /// let card: Option<Card> = manager.create(123456789);
+    /// assert!(card.is_some());
+    ///
+    /// // Otherwise, None is returned.
+    /// let player: Option<Player> = manager.create(987654321);
+    /// assert!(player.is_none());
+    /// ```
     pub fn create<T>(&self, id: Snowflake) -> Option<T>
     where
         T: Entity + Sync + Send + 'static,
@@ -160,8 +381,29 @@ impl EntityManager {
         Some(T::new(id, cm, HashSet::new()))
     }
 
-    /// Loads an [`Entity`] from a configured storage backend, if any.
+    /// Loads an immutable (read-locked) reference to an [`Entity`] from its
+    /// configured storage backend.
     ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// // Set up an EntityManager to store cards.
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // Create and store a card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// // Load it again.
+    /// let handle = manager.load::<Card>(123456789).unwrap();
+    /// assert!(handle.get().is_some());
+    /// ```
     pub fn load<T>(&self, id: Snowflake) -> Result<ReadReference<StoreHandle<T>>>
     where
         T: Entity + Sync + Send + 'static,
@@ -173,6 +415,54 @@ impl EntityManager {
         store.load(id, cm)
     }
 
+    /// Loads a mutable (write-locked) reference to an [`Entity`] from its
+    /// configured storage backend.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::local_storage::{LocalEntityStorage, LocalComponentStorage};
+    /// use akashi::EntityManager;
+    /// use akashi::Component;
+    /// use akashi::Entity;
+    /// use akashi::Card;
+    ///
+    /// #[derive(Clone)]
+    /// pub struct MyComponent(u64);
+    /// impl Component<Card> for MyComponent {}
+    ///
+    /// // Set up an EntityManager to store cards and our example component.
+    /// let mut manager = EntityManager::new();
+    ///
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// let component_backend: LocalComponentStorage<Card, MyComponent>
+    ///     = LocalComponentStorage::new();
+    /// manager.register_component("MyComponent", component_backend).unwrap();
+    ///
+    /// // Create and store a card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// {
+    ///     // Load it again, mutably.
+    ///     let mut handle = manager.load_mut::<Card>(123456789).unwrap();
+    ///     let mut card = handle.get_mut().unwrap();
+    ///
+    ///     // Attach some data to it, then update the stored Entity.
+    ///     card.set_component(MyComponent(50)).unwrap();
+    ///     handle.store().unwrap();
+    /// }
+    ///
+    /// // Load it once more, immutably.
+    /// let handle = manager.load::<Card>(123456789).unwrap();
+    /// let card = handle.get().unwrap();
+    ///
+    /// // Get the component data we previously attached to it.
+    /// let component: MyComponent = card.get_component().unwrap().unwrap();
+    /// assert_eq!(component.0, 50);
+    /// ```
     pub fn load_mut<T>(&self, id: Snowflake) -> Result<WriteReference<StoreHandle<T>>>
     where
         T: Entity + Sync + Send + 'static,
@@ -184,6 +474,26 @@ impl EntityManager {
         store.load_mut(id, cm)
     }
 
+    /// Stores an [`Entity`] object to its configured storage backend.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// // Set up an EntityManager to store cards.
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // Create and store a card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// assert!(manager.exists::<Card>(123456789).unwrap());
+    /// ```
     pub fn store<T>(&self, entity: T) -> Result<()>
     where
         T: Entity + Sync + Send + 'static,
@@ -195,6 +505,31 @@ impl EntityManager {
         ent_store.store(entity)
     }
 
+    /// Deletes an [`Entity`] object from its configured storage backend by ID.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// // Set up an EntityManager to store cards.
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // Create and store a card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// assert!(manager.exists::<Card>(123456789).unwrap());
+    ///
+    /// // Delete the card.
+    /// manager.delete::<Card>(123456789).unwrap();
+    ///
+    /// assert!(!manager.exists::<Card>(123456789).unwrap());
+    /// ```
     pub fn delete<T>(&self, id: Snowflake) -> Result<()>
     where
         T: Entity + Sync + Send + 'static,
@@ -206,6 +541,7 @@ impl EntityManager {
         store.delete(id, cm)
     }
 
+    /// Checks whether an [`Entity`] object with the given ID exists.
     pub fn exists<T>(&self, id: Snowflake) -> Result<bool>
     where
         T: Entity + Sync + Send + 'static,
@@ -217,6 +553,30 @@ impl EntityManager {
         store.exists(id)
     }
 
+    /// Gets a listing of all stored object IDs for the given [`Entity`] type.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use akashi::Card;
+    /// use akashi::EntityManager;
+    /// use akashi::local_storage::LocalEntityStorage;
+    ///
+    /// // Set up an EntityManager to store cards.
+    /// let mut manager = EntityManager::new();
+    /// let backend: LocalEntityStorage<Card> = LocalEntityStorage::new();
+    /// manager.register_entity(backend).unwrap();
+    ///
+    /// // Create and store a card.
+    /// let card: Card = manager.create(123456789).unwrap();
+    /// manager.store(card).unwrap();
+    ///
+    /// // Get a list of the first 20 card IDs in our storage.
+    /// // This should only contain the ID of the card we just inserted.
+    /// let ids = manager.keys::<Card>(0, 20).unwrap();
+    /// assert_eq!(ids.len(), 1);
+    /// assert_eq!(ids[0], 123456789);
+    /// ```
     pub fn keys<T>(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>
     where
         T: Entity + Sync + Send + 'static,

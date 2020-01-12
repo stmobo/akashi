@@ -296,20 +296,18 @@ where
     }
 
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
-        let ids: Vec<Snowflake>;
-        let start_index = page * limit;
+        let mut ids: Vec<Snowflake>;
 
-        {
-            let data = self.data.read().unwrap();
-            ids = data
-                .keys()
-                .skip(start_index as usize)
-                .take(limit as usize)
-                .copied()
-                .collect();
-        }
+        let data = self.data.read().unwrap();
+        ids = data.keys().copied().collect();
+        drop(data);
 
-        Ok(ids)
+        ids.sort_unstable();
+        Ok(ids
+            .into_iter()
+            .skip((page * limit) as usize)
+            .take(limit as usize)
+            .collect())
     }
 }
 
