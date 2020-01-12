@@ -3,9 +3,11 @@ use super::entity_store::{
     EntityBackend, EntityStore, EntityStoreDowncast, EntityStoreDowncastHelper, ReadReference,
     StoreHandle, WriteReference,
 };
-use super::{Component, ComponentManager, Entity, Store, TypeNotFoundError};
+use super::{Component, ComponentBackend, ComponentManager, Entity, Store, TypeNotFoundError};
 use crate::snowflake::Snowflake;
 use crate::util::Result;
+
+use failure::{err_msg, format_err};
 
 use std::any;
 use std::any::TypeId;
@@ -22,6 +24,64 @@ pub struct ECSManager {
 }
 
 impl ECSManager {
+    pub fn new() -> ECSManager {
+        ECSManager {
+            types: HashMap::new(),
+        }
+    }
+
+    pub fn register_entity<T, U>(&mut self, backend: U) -> Result<()>
+    where
+        T: Entity + Sync + Send + 'static,
+        U: EntityBackend<T> + Sync + Send + 'static,
+    {
+        if self.types.contains_key(&TypeId::of::<U>()) {
+            return Err(format_err!(
+                "entity type already registered: {}",
+                any::type_name::<T>()
+            ));
+        }
+
+        let dc_helper = EntityStoreDowncastHelper(Box::new(Store::<T, U>::new(Arc::new(backend))));
+        let type_data = EntityTypeData {
+            store: Box::new(dc_helper),
+            component_manager: Arc::new(ComponentManager::<T>::new()),
+        };
+
+        self.types.insert(TypeId::of::<T>(), type_data);
+
+        Ok(())
+    }
+
+    pub fn register_component<T, U, V>(&mut self, name: &str, backend: V) -> Result<()>
+    where
+        T: Entity + Sync + Send + 'static,
+        U: Component<T> + 'static,
+        V: ComponentBackend<T, U> + Sync + Send + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+
+        if !self.types.contains_key(&TypeId::of::<U>()) {
+            return Err(format_err!(
+                "entity type not registered: {}",
+                any::type_name::<T>()
+            ));
+        }
+
+        let type_data = self.types.get_mut(&type_id).unwrap();
+
+        // This should always work, because we create the component managers
+        // ourselves.
+        let dyn_ref = Arc::get_mut(&mut type_data.component_manager)
+            .ok_or_else(|| err_msg("could not get exclusive access to ComponentManager"))?;
+
+        let cm_ref = dyn_ref
+            .downcast_mut::<ComponentManager<T>>()
+            .expect("failed to downcast ComponentManager");
+
+        cm_ref.register_component(name, backend)
+    }
+
     fn get_type_data<'a, T>(
         &'a self,
     ) -> Option<(&'a (dyn EntityStore<T> + 'static), Arc<ComponentManager<T>>)>

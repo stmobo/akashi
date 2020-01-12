@@ -222,22 +222,26 @@ mod tests {
             let card_type_store = Arc::new(Store::new(s));
 
             let mut card_type_cm: ComponentManager<CardType> = ComponentManager::new();
-            card_type_cm.register_component(
-                "MockTypeData",
-                LocalComponentStorage::<CardType, MockTypeData>::new(),
-            );
+            card_type_cm
+                .register_component(
+                    "MockTypeData",
+                    LocalComponentStorage::<CardType, MockTypeData>::new(),
+                )
+                .unwrap();
 
             let card_type_cm = Arc::new(card_type_cm);
 
             let mut card_cm: ComponentManager<Card> = ComponentManager::new();
-            card_cm.register_component(
-                "CardType",
-                CardTypeLayer::new(
-                    LocalComponentStorage::<Card, Snowflake>::new(),
-                    card_type_store.clone(),
-                    card_type_cm.clone(),
-                ),
-            );
+            card_cm
+                .register_component(
+                    "CardType",
+                    CardTypeLayer::new(
+                        LocalComponentStorage::<Card, Snowflake>::new(),
+                        card_type_store.clone(),
+                        card_type_cm.clone(),
+                    ),
+                )
+                .unwrap();
 
             let card_cm = Arc::new(card_cm);
 

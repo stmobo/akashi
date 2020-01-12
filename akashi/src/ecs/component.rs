@@ -8,6 +8,9 @@ use crate::util::Result;
 use std::any;
 use std::any::TypeId;
 use std::collections::HashMap;
+use std::fmt;
+
+use failure::format_err;
 
 use downcast_rs::{Downcast, DowncastSync};
 
@@ -23,7 +26,7 @@ use downcast_rs::{Downcast, DowncastSync};
 pub trait Component<T>: Downcast + Sync + Send {}
 downcast_rs::impl_downcast!(Component<T>);
 
-pub trait ComponentManagerDowncast: DowncastSync + Sync + Send {}
+pub trait ComponentManagerDowncast: DowncastSync + Sync + Send + fmt::Debug {}
 downcast_rs::impl_downcast!(sync ComponentManagerDowncast);
 
 impl<T: Entity + 'static> ComponentManagerDowncast for ComponentManager<T> {}
@@ -46,7 +49,6 @@ impl<T: Entity + 'static> ComponentManagerDowncast for ComponentManager<T> {}
 /// for which no backing store has been registered with
 /// [`register_component`](ComponentManager::register_component) will return
 /// [`TypeNotFoundError`].
-#[derive(Debug)]
 pub struct ComponentManager<T: Entity + 'static> {
     component_types: HashMap<TypeId, ComponentTypeData<T>>,
     component_names: HashMap<TypeId, String>,
@@ -68,11 +70,18 @@ impl<T: Entity + 'static> ComponentManager<T> {
     /// This registers a backing store and associated functions for
     /// a [`Component`] type, allowing [`Entities`](Entity) that use this manager
     /// to get/set [`Component`] data of that type.
-    pub fn register_component<U, V>(&mut self, name: &str, store: V)
+    pub fn register_component<U, V>(&mut self, name: &str, store: V) -> Result<()>
     where
         U: Component<T> + 'static,
         V: ComponentBackend<T, U> + Sync + Send + 'static,
     {
+        if self.component_types.contains_key(&TypeId::of::<U>()) {
+            return Err(format_err!(
+                "component type already registered: {}",
+                any::type_name::<U>()
+            ));
+        }
+
         self.component_types
             .insert(TypeId::of::<U>(), ComponentTypeData::new(store));
 
@@ -81,6 +90,8 @@ impl<T: Entity + 'static> ComponentManager<T> {
 
         self.component_names_inv
             .insert(name.to_owned(), TypeId::of::<U>());
+
+        Ok(())
     }
 
     /// Check to see if a particular [`Component`] type has registered
@@ -153,5 +164,19 @@ impl<T: Entity + 'static> ComponentManager<T> {
         } else {
             Err(TypeNotFoundError::new(any::type_name::<U>().to_owned()).into())
         }
+    }
+}
+
+impl<T> fmt::Debug for ComponentManager<T>
+where
+    T: Entity + 'static,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "ComponentManager<{}> {{ {} types }}",
+            any::type_name::<T>(),
+            self.component_types.len()
+        )
     }
 }

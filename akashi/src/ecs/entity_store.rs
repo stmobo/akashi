@@ -371,6 +371,7 @@ where
     }
 }
 
+#[doc(hidden)]
 pub struct EntityStoreDowncastHelper<T: Entity + Sync + Send + 'static>(
     pub Box<dyn EntityStore<T> + 'static>,
 );
