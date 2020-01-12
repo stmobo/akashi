@@ -1,7 +1,7 @@
 //! Utilities for working with in-game card categories or types.
 
 use crate::card::Card;
-use crate::ecs::ecs_manager::ECSManager;
+use crate::ecs::ecs_manager::EntityManager;
 use crate::ecs::entity_store::{ReadReference, StoreHandle, WriteReference};
 use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
@@ -97,14 +97,14 @@ impl AttachedCardType {
     /// Gets an immutable, read-locked reference to the actual
     /// [`CardType`] entity referred to by this component
     /// from storage.
-    pub fn load(&self, ecs: &ECSManager) -> Result<ReadReference<StoreHandle<CardType>>> {
+    pub fn load(&self, ecs: &EntityManager) -> Result<ReadReference<StoreHandle<CardType>>> {
         ecs.load(self.type_id)
     }
 
     /// Gets a mutable, write-locked reference to the actual
     /// [`CardType`] entity referred to by this component
     /// from storage.
-    pub fn load_mut(&self, ecs: &ECSManager) -> Result<WriteReference<StoreHandle<CardType>>> {
+    pub fn load_mut(&self, ecs: &EntityManager) -> Result<WriteReference<StoreHandle<CardType>>> {
         ecs.load_mut(self.type_id)
     }
 }
@@ -182,13 +182,13 @@ mod tests {
     }
 
     struct Fixtures {
-        ecs_manager: ECSManager,
+        ecs_manager: EntityManager,
         snowflake_gen: SnowflakeGenerator,
     }
 
     impl Fixtures {
         fn new() -> Fixtures {
-            let mut ecs_manager = ECSManager::new();
+            let mut ecs_manager = EntityManager::new();
 
             ecs_manager
                 .register_entity(LocalEntityStorage::<Card>::new())

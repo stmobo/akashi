@@ -18,6 +18,9 @@ pub use entity::Entity;
 #[doc(inline)]
 pub use entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
 
+#[doc(inline)]
+pub use ecs_manager::EntityManager;
+
 pub use component_store::DowncastError;
 pub use entity::ClearComponentsError;
 

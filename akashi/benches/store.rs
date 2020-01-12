@@ -1,8 +1,9 @@
 extern crate num_cpus;
 extern crate rayon;
 
-use akashi::ecs::entity_store::{StoreHandle, StoreReference};
-use akashi::{Card, ComponentManager, Entity, EntityBackend, Snowflake, SnowflakeGenerator, Store};
+use akashi::ecs::component::ComponentManager;
+use akashi::ecs::entity_store::{Store, StoreHandle, StoreReference};
+use akashi::{Card, Entity, EntityBackend, Snowflake, SnowflakeGenerator};
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 use crossbeam::queue::SegQueue;
 use failure::Error;

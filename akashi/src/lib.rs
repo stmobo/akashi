@@ -34,10 +34,7 @@ mod util;
 pub use card::Card;
 
 #[doc(inline)]
-pub use ecs::{Component, ComponentBackend, ComponentManager, Entity};
-
-#[doc(inline)]
-pub use ecs::entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
+pub use ecs::{Component, ComponentBackend, Entity, EntityBackend, EntityManager};
 
 #[doc(inline)]
 pub use player::Player;

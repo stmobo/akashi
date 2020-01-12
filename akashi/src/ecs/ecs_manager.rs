@@ -19,13 +19,23 @@ pub struct EntityTypeData {
     component_manager: Arc<dyn ComponentManagerDowncast>,
 }
 
-pub struct ECSManager {
+/// Manages creating, storing, and loading [`Entities`](Entity).
+///
+/// This acts as a collection of [`Stores`](super::Store) and
+/// [`ComponentManagers`](ComponentManager), and provides a unified interface
+/// for them to make working with [`Entities`](Entity) simpler.
+///
+/// # Errors
+///
+/// As with [`Store`](super::Store) and [`ComponentManager`], any errors reported
+/// by backend storage drivers will bubble up through `EntityManager` methods.
+pub struct EntityManager {
     types: HashMap<TypeId, EntityTypeData>,
 }
 
-impl ECSManager {
-    pub fn new() -> ECSManager {
-        ECSManager {
+impl EntityManager {
+    pub fn new() -> EntityManager {
+        EntityManager {
             types: HashMap::new(),
         }
     }
@@ -150,6 +160,8 @@ impl ECSManager {
         Some(T::new(id, cm, HashSet::new()))
     }
 
+    /// Loads an [`Entity`] from a configured storage backend, if any.
+    ///
     pub fn load<T>(&self, id: Snowflake) -> Result<ReadReference<StoreHandle<T>>>
     where
         T: Entity + Sync + Send + 'static,
