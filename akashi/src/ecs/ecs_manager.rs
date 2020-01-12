@@ -11,7 +11,7 @@ use failure::{err_msg, format_err};
 
 use std::any;
 use std::any::TypeId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub struct EntityTypeData {
@@ -70,8 +70,6 @@ impl ECSManager {
 
         let type_data = self.types.get_mut(&type_id).unwrap();
 
-        // This should always work, because we create the component managers
-        // ourselves.
         let dyn_ref = Arc::get_mut(&mut type_data.component_manager)
             .ok_or_else(|| err_msg("could not get exclusive access to ComponentManager"))?;
 
@@ -93,13 +91,14 @@ impl ECSManager {
 
         let store_ref = type_data
             .store
-            .downcast_ref::<EntityStoreDowncastHelper<T>>()?;
+            .downcast_ref::<EntityStoreDowncastHelper<T>>()
+            .expect("failed to downcast EntityStore wrapper");
 
         let cm = type_data
             .component_manager
             .clone()
             .downcast_arc::<ComponentManager<T>>()
-            .ok()?;
+            .expect("failed to downcast ComponentManager");
 
         Some((&*store_ref.0, cm))
     }
@@ -113,7 +112,8 @@ impl ECSManager {
 
         let store_ref = type_data
             .store
-            .downcast_ref::<EntityStoreDowncastHelper<T>>()?;
+            .downcast_ref::<EntityStoreDowncastHelper<T>>()
+            .expect("failed to downcast EntityStore wrapper");
 
         Some(&*store_ref.0)
     }
@@ -128,9 +128,26 @@ impl ECSManager {
 
         let store_ref = type_data
             .store
-            .downcast_ref::<EntityStoreDowncastHelper<T>>()?;
+            .downcast_ref::<EntityStoreDowncastHelper<T>>()
+            .expect("failed to downcast EntityStore wrapper");
 
         store_ref.0.downcast_ref::<Store<T, U>>()
+    }
+
+    pub fn create<T>(&self, id: Snowflake) -> Option<T>
+    where
+        T: Entity + Sync + Send + 'static,
+    {
+        let type_id = TypeId::of::<T>();
+        let type_data = self.types.get(&type_id)?;
+
+        let cm = type_data
+            .component_manager
+            .clone()
+            .downcast_arc::<ComponentManager<T>>()
+            .expect("failed to downcast ComponentManager");
+
+        Some(T::new(id, cm, HashSet::new()))
     }
 
     pub fn load<T>(&self, id: Snowflake) -> Result<ReadReference<StoreHandle<T>>>
