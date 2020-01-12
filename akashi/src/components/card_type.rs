@@ -2,7 +2,7 @@
 
 use crate::card::Card;
 use crate::ecs::entity_store::{ReadReference, StoreHandle, WriteReference};
-use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity, EntityManager};
+use crate::ecs::{Component, ComponentAdapter, ComponentManager, Entity, EntityManager};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 use crate::util::Result;
 
@@ -19,6 +19,7 @@ pub struct CardType {
     type_id: Snowflake,
     component_manager: Arc<ComponentManager<CardType>>,
     components_attached: HashSet<TypeId>,
+    dirty: bool,
 }
 
 impl CardType {
@@ -32,6 +33,7 @@ impl CardType {
             type_id,
             component_manager,
             components_attached,
+            dirty: false,
         }
     }
 
@@ -45,6 +47,7 @@ impl CardType {
             type_id: snowflake_gen.generate(),
             component_manager,
             components_attached: HashSet::new(),
+            dirty: false,
         }
     }
 
@@ -72,6 +75,14 @@ impl Entity for CardType {
 
     fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
         &mut self.components_attached
+    }
+
+    fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    fn dirty_mut(&mut self) -> &mut bool {
+        &mut self.dirty
     }
 }
 
@@ -128,44 +139,7 @@ impl Component<Card> for AttachedCardType {}
 ///
 /// The wrapped storage type needs to implement loading and storing
 /// card type IDs via the `ComponentBackend<Card, Snowflake>` trait.
-pub struct CardTypeLayer<T>
-where
-    T: ComponentBackend<Card, Snowflake> + 'static,
-{
-    component_backend: T,
-}
-
-impl<T> CardTypeLayer<T>
-where
-    T: ComponentBackend<Card, Snowflake> + 'static,
-{
-    /// Constructs a new `CardTypeLayer`.
-    pub fn new(component_backend: T) -> CardTypeLayer<T> {
-        CardTypeLayer { component_backend }
-    }
-}
-
-impl<T> ComponentBackend<Card, AttachedCardType> for CardTypeLayer<T>
-where
-    T: ComponentBackend<Card, Snowflake> + Sync + Send + 'static,
-{
-    fn load(&self, entity: &Card) -> Result<Option<AttachedCardType>> {
-        let attached_id: Option<Snowflake> = self.component_backend.load(entity)?;
-        Ok(attached_id.map(|x| x.into()))
-    }
-
-    fn store(&self, entity: &Card, component: AttachedCardType) -> Result<()> {
-        self.component_backend.store(entity, component.into())
-    }
-
-    fn exists(&self, entity: &Card) -> Result<bool> {
-        self.component_backend.exists(entity)
-    }
-
-    fn delete(&self, entity: &Card) -> Result<()> {
-        self.component_backend.delete(entity)
-    }
-}
+pub type CardTypeLayer<W> = ComponentAdapter<Card, Snowflake, AttachedCardType, W>;
 
 #[cfg(test)]
 mod tests {

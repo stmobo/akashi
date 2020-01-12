@@ -4,7 +4,7 @@ use crate::card::Card;
 use crate::ecs::entity_store::handle_ref::*;
 use crate::ecs::entity_store::{StoreHandle, StoreReference};
 use crate::ecs::EntityManager;
-use crate::ecs::{Component, ComponentAdapter, ComponentBackend};
+use crate::ecs::{Component, ComponentAdapter};
 use crate::player::Player;
 use crate::snowflake::Snowflake;
 use crate::util::Result;
