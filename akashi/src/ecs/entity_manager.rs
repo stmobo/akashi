@@ -507,6 +507,21 @@ impl EntityManager {
         ent_store.store(entity)
     }
 
+    /// Moves the given [`Entity`] into a locked storage handle without writing
+    /// it to storage, overwriting anything that may have been there before.
+    ///
+    /// Returns a write-locked reference to the handle.
+    pub fn insert<T>(&self, entity: T) -> Result<WriteReference<StoreHandle<T>>>
+    where
+        T: Entity + Sync + Send + 'static,
+    {
+        let ent_store = self
+            .get_store_dyn()
+            .ok_or_else(|| TypeNotFoundError::new(String::from(any::type_name::<T>())))?;
+
+        Ok(ent_store.insert(entity))
+    }
+
     /// Deletes an [`Entity`] object from its configured storage backend by ID.
     ///
     /// # Example

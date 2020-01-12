@@ -15,6 +15,7 @@ pub struct Card {
     id: Snowflake,
     component_manager: Arc<ComponentManager<Card>>,
     components_attached: HashSet<TypeId>,
+    dirty: bool,
 }
 
 impl Card {
@@ -28,6 +29,7 @@ impl Card {
             id,
             component_manager,
             components_attached,
+            dirty: false,
         }
     }
 
@@ -40,6 +42,7 @@ impl Card {
             id: snowflake_gen.generate(),
             component_manager,
             components_attached: HashSet::new(),
+            dirty: false,
         }
     }
 
@@ -79,6 +82,14 @@ impl Entity for Card {
 
     fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
         &mut self.components_attached
+    }
+
+    fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    fn dirty_mut(&mut self) -> &mut bool {
+        &mut self.dirty
     }
 }
 

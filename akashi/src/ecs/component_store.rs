@@ -6,6 +6,7 @@ use crate::util::Result;
 
 use std::any;
 use std::fmt;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use failure::Fail;
@@ -110,4 +111,85 @@ where
 #[fail(display = "Failed to downcast to type {}", component_name)]
 pub struct DowncastError {
     component_name: &'static str,
+}
+
+pub struct ComponentAdapter<E, F, T, W>
+where
+    E: Entity + 'static,
+    F: Into<T> + Component<E> + 'static,
+    T: Into<F> + Component<E> + 'static,
+    W: ComponentBackend<E, F> + Sync + Send,
+{
+    wrapped: W,
+    ent_type: PhantomData<*const E>,
+    from_type: PhantomData<*const F>,
+    to_type: PhantomData<*const T>,
+}
+
+// Safety: Sync is automatically un-derived due to all the phantom pointer data.
+// but since we don't actually store those types, ComponentAdapter should be
+// Sync so long as type W is Sync.
+unsafe impl<E, F, T, W> Sync for ComponentAdapter<E, F, T, W>
+where
+    E: Entity + 'static,
+    F: Into<T> + Component<E> + 'static,
+    T: Into<F> + Component<E> + 'static,
+    W: ComponentBackend<E, F> + Sync + Send,
+{
+}
+
+// Safety: ditto above-- the only reason this isn't Send is because of the
+// phantom pointer data.
+unsafe impl<E, F, T, W> Send for ComponentAdapter<E, F, T, W>
+where
+    E: Entity + 'static,
+    F: Into<T> + Component<E> + 'static,
+    T: Into<F> + Component<E> + 'static,
+    W: ComponentBackend<E, F> + Sync + Send,
+{
+}
+
+impl<E, F, T, W> ComponentAdapter<E, F, T, W>
+where
+    E: Entity + 'static,
+    F: Into<T> + Component<E> + 'static,
+    T: Into<F> + Component<E> + 'static,
+    W: ComponentBackend<E, F> + Sync + Send,
+{
+    pub fn new(wrapped: W) -> ComponentAdapter<E, F, T, W> {
+        ComponentAdapter {
+            wrapped,
+            ent_type: PhantomData,
+            from_type: PhantomData,
+            to_type: PhantomData,
+        }
+    }
+}
+
+impl<E, F, T, W> ComponentBackend<E, T> for ComponentAdapter<E, F, T, W>
+where
+    E: Entity + 'static,
+    F: Into<T> + Component<E> + 'static,
+    T: Into<F> + Component<E> + 'static,
+    W: ComponentBackend<E, F> + Sync + Send,
+{
+    fn load(&self, entity: &E) -> Result<Option<T>> {
+        Ok(self
+            .wrapped
+            .load(entity)?
+            .map(|other_type: F| other_type.into()))
+    }
+
+    fn store(&self, entity: &E, component: T) -> Result<()> {
+        let other_type: F = component.into();
+        self.wrapped.store(entity, other_type)
+    }
+
+    fn exists(&self, entity: &E) -> Result<bool> {
+        self.wrapped.exists(entity)
+    }
+
+    fn delete(&self, entity: &E) -> Result<()> {
+        self.wrapped.delete(entity)
+    }
 }

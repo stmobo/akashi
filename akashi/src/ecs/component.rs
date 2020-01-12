@@ -23,7 +23,7 @@ use downcast_rs::{Downcast, DowncastSync};
 ///
 /// This trait doesn't provide anything on its own, but it does
 /// allow a type to interact with the rest of the ECS code.
-pub trait Component<T>: Downcast + Sync + Send {}
+pub trait Component<T>: Downcast {}
 downcast_rs::impl_downcast!(Component<T>);
 
 /// Used as a helper for downcasting [`ComponentManagers`](ComponentManager).

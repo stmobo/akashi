@@ -10,7 +10,7 @@ pub mod entity_store;
 pub use component::{Component, ComponentManager};
 
 #[doc(inline)]
-pub use component_store::ComponentBackend;
+pub use component_store::{ComponentAdapter, ComponentBackend};
 
 #[doc(inline)]
 pub use entity::Entity;

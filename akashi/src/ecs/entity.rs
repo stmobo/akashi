@@ -45,6 +45,13 @@ pub trait Entity: Sized + 'static {
     /// Components.
     fn id(&self) -> Snowflake;
 
+    /// Checks whether any [`Components`](Component) have been modified
+    /// on this Entity.
+    fn dirty(&self) -> bool;
+
+    /// Get this entity's 'dirty' flag.
+    fn dirty_mut(&mut self) -> &mut bool;
+
     /// Gets a reference to the [`ComponentManager`]
     /// used to perform operations on this Entity.
     fn component_manager(&self) -> &ComponentManager<Self>;
@@ -77,6 +84,7 @@ pub trait Entity: Sized + 'static {
             .set_component::<T>(&self, component)
             .map(|_v| {
                 self.components_attached_mut().insert(TypeId::of::<T>());
+                *self.dirty_mut() = true;
             })
     }
 
@@ -94,6 +102,7 @@ pub trait Entity: Sized + 'static {
     /// Deletes an attached [`Component`] from this Entity.
     fn delete_component<T: Component<Self> + 'static>(&mut self) -> Result<()> {
         self.components_attached_mut().remove(&TypeId::of::<T>());
+        *self.dirty_mut() = true;
         self.component_manager().delete_component::<T>(&self)
     }
 

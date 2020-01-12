@@ -15,6 +15,7 @@ pub struct Player {
     id: Snowflake,
     component_manager: Arc<ComponentManager<Player>>,
     components_attached: HashSet<TypeId>,
+    dirty: bool,
 }
 
 impl Player {
@@ -28,6 +29,7 @@ impl Player {
             id,
             component_manager,
             components_attached,
+            dirty: false,
         }
     }
 
@@ -41,6 +43,7 @@ impl Player {
             id: snowflake_gen.generate(),
             component_manager,
             components_attached: HashSet::new(),
+            dirty: false,
         }
     }
 
@@ -80,5 +83,13 @@ impl Entity for Player {
 
     fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
         &mut self.components_attached
+    }
+
+    fn dirty(&self) -> bool {
+        self.dirty
+    }
+
+    fn dirty_mut(&mut self) -> &mut bool {
+        &mut self.dirty
     }
 }

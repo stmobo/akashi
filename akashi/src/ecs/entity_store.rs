@@ -158,6 +158,20 @@ where
     }
 }
 
+impl<T> Drop for StoreHandle<T>
+where
+    T: Entity + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(entity) = &self.object {
+            if entity.dirty() {
+                // No good way of handling errors here
+                let _e = self.backend.store(self.id, &entity);
+            }
+        }
+    }
+}
+
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct StoredHandleData<T>
@@ -340,6 +354,40 @@ where
         }
     }
 
+    /// Moves the given [`Entity`] into a store handle without writing
+    /// it to storage, overwriting anything that may have been there before.
+    ///
+    /// Returns a write-locked reference to the handle.
+    pub fn insert(&self, object: T) -> WriteReference<StoreHandle<T>> {
+        let id = object.id();
+        let handle_data = self.get_handle(id);
+
+        // If the initializer gets called, `object` gets set to None,
+        // and initializer_result is filled in with the result value.
+        //
+        // If the initializer is _not_ called, `object` remains as Some(object),
+        // and initializer_result is None.
+        let mut object: Option<T> = Some(object);
+        let mut initializer_result: Option<WriteReference<StoreHandle<T>>> = None;
+
+        handle_data.initializer.call_once(|| {
+            let mut handle = write_store_reference(handle_data.handle.clone());
+            handle.set_object(object.take());
+            initializer_result = Some(handle);
+        });
+
+        if let Some(obj) = object {
+            let mut ret = write_store_reference(handle_data.handle.clone());
+            ret.set_object(Some(obj));
+            ret
+        } else {
+            // This should be safe, because in the initializer,
+            // object.take() is immediately followed by setting
+            // initializer_result to some result.
+            initializer_result.unwrap()
+        }
+    }
+
     /// Deletes the [`Entity`] with the given ID from storage.
     ///
     /// Note that internally, this method loads the [`Entity`] prior to
@@ -418,6 +466,7 @@ where
     ) -> Result<WriteReference<StoreHandle<T>>>;
 
     fn store(&self, object: T) -> Result<()>;
+    fn insert(&self, object: T) -> WriteReference<StoreHandle<T>>;
     fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()>;
     fn exists(&self, id: Snowflake) -> Result<bool>;
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
@@ -448,6 +497,10 @@ where
 
     fn store(&self, object: T) -> Result<()> {
         self.store(object)
+    }
+
+    fn insert(&self, object: T) -> WriteReference<StoreHandle<T>> {
+        self.insert(object)
     }
 
     fn delete(&self, id: Snowflake, cm: Arc<ComponentManager<T>>) -> Result<()> {
@@ -520,16 +573,23 @@ mod tests {
         field_b: u64,
         cm: Arc<ComponentManager<MockStoredData>>,
         components_attached: HashSet<TypeId>,
+        dirty: bool,
     }
 
     impl MockStoredData {
-        fn new(id: Snowflake, field_a: String, field_b: u64) -> MockStoredData {
+        fn new(
+            id: Snowflake,
+            field_a: String,
+            field_b: u64,
+            cm: Arc<ComponentManager<MockStoredData>>,
+        ) -> MockStoredData {
             MockStoredData {
                 id,
                 field_a,
                 field_b,
-                cm: Arc::new(ComponentManager::new()),
+                cm,
                 components_attached: HashSet::new(),
+                dirty: false,
             }
         }
 
@@ -541,10 +601,10 @@ mod tests {
     impl Entity for MockStoredData {
         fn new(
             id: Snowflake,
-            _cm: Arc<ComponentManager<Self>>,
+            cm: Arc<ComponentManager<Self>>,
             _components: HashSet<TypeId>,
         ) -> Self {
-            MockStoredData::new(id, String::from(""), 0)
+            MockStoredData::new(id, String::from(""), 0, cm)
         }
 
         fn id(&self) -> Snowflake {
@@ -561,6 +621,14 @@ mod tests {
 
         fn components_attached_mut(&mut self) -> &mut HashSet<TypeId> {
             &mut self.components_attached
+        }
+
+        fn dirty(&self) -> bool {
+            self.dirty
+        }
+
+        fn dirty_mut(&mut self) -> &mut bool {
+            &mut self.dirty
         }
     }
 
@@ -639,7 +707,12 @@ mod tests {
     fn test_exists() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockEntityBackend::new());
-        let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
+        let data = MockStoredData::new(
+            snowflake_gen.generate(),
+            "foo".to_owned(),
+            1,
+            Arc::new(ComponentManager::new()),
+        );
 
         backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
@@ -665,7 +738,12 @@ mod tests {
     fn test_load() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockEntityBackend::new());
-        let data = MockStoredData::new(snowflake_gen.generate(), "foo".to_owned(), 1);
+        let data = MockStoredData::new(
+            snowflake_gen.generate(),
+            "foo".to_owned(),
+            1,
+            Arc::new(ComponentManager::new()),
+        );
 
         backend.store(*data.id(), &data).unwrap();
         let store = MockStore::new(backend);
@@ -688,7 +766,7 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = Arc::new(MockEntityBackend::new());
         let id = snowflake_gen.generate();
-        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        let data = MockStoredData::new(id, "foo".to_owned(), 1, Arc::new(ComponentManager::new()));
         backend.store(id, &data).unwrap();
 
         // Create a bunch of threads.
@@ -729,7 +807,7 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let mut backend = MockEntityBackend::new();
         let id = snowflake_gen.generate();
-        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        let data = MockStoredData::new(id, "foo".to_owned(), 1, Arc::new(ComponentManager::new()));
 
         // Detect if and when we end up performing multiple backend loads.
         backend.set_remove_on_load(true);
@@ -807,7 +885,7 @@ mod tests {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let backend = MockEntityBackend::new();
         let id = snowflake_gen.generate();
-        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        let data = MockStoredData::new(id, "foo".to_owned(), 1, Arc::new(ComponentManager::new()));
         backend.store(id, &data).unwrap();
 
         let store = MockStore::new(Arc::new(backend));
@@ -837,11 +915,11 @@ mod tests {
     fn test_store() {
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
-        let data = MockStoredData::new(id, "foo".to_owned(), 1);
+        let cm = Arc::new(ComponentManager::new());
+        let data = MockStoredData::new(id, "foo".to_owned(), 1, cm.clone());
 
         let backend = Arc::new(MockEntityBackend::new());
         let store = MockStore::new(backend);
-        let cm = Arc::new(ComponentManager::new());
 
         {
             let mut handle = store.load_mut(*data.id(), cm.clone()).unwrap();
@@ -857,5 +935,46 @@ mod tests {
         assert_eq!(*data_copy.id(), id);
         assert_eq!(data.field_a, data_copy.field_a);
         assert_eq!(data.field_b, data_copy.field_b);
+    }
+
+    #[test]
+    fn test_handle_drop() {
+        use super::ComponentManager;
+        use crate::local_storage::LocalComponentStorage;
+        use crate::Component;
+
+        #[derive(Clone)]
+        struct TestComponent(u64);
+        impl Component<MockStoredData> for TestComponent {};
+
+        let backend = Arc::new(MockEntityBackend::new());
+        let store = MockStore::new(backend);
+        let mut cm: ComponentManager<MockStoredData> = ComponentManager::new();
+
+        cm.register_component(
+            "TestComponent",
+            LocalComponentStorage::<MockStoredData, TestComponent>::new(),
+        )
+        .unwrap();
+
+        let cm = Arc::new(cm);
+
+        let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let id = snowflake_gen.generate();
+
+        {
+            let data = MockStoredData::new(id, "foo".to_owned(), 1, cm.clone());
+
+            let mut handle = store.insert(data);
+            let data = handle.get_mut().unwrap();
+
+            data.set_component(TestComponent(50)).unwrap();
+        }
+
+        let handle = store.load(id, cm.clone()).unwrap();
+        let data = handle.get().unwrap();
+        let component: TestComponent = data.get_component().unwrap().unwrap();
+
+        assert_eq!(component.0, 50);
     }
 }
