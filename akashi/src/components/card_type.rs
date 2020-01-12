@@ -1,9 +1,8 @@
 //! Utilities for working with in-game card categories or types.
 
 use crate::card::Card;
-use crate::ecs::ecs_manager::EntityManager;
 use crate::ecs::entity_store::{ReadReference, StoreHandle, WriteReference};
-use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity};
+use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity, EntityManager};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 use crate::util::Result;
 

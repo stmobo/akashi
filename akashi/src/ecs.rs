@@ -2,8 +2,8 @@
 
 pub mod component;
 pub mod component_store;
-pub mod ecs_manager;
 pub mod entity;
+pub mod entity_manager;
 pub mod entity_store;
 
 #[doc(inline)]
@@ -19,7 +19,7 @@ pub use entity::Entity;
 pub use entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
 
 #[doc(inline)]
-pub use ecs_manager::EntityManager;
+pub use entity_manager::EntityManager;
 
 pub use component_store::DowncastError;
 pub use entity::ClearComponentsError;

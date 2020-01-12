@@ -1,3 +1,4 @@
+//! A manager for creating, loading, and storing [`Entities`](Entity).
 use super::component::ComponentManagerDowncast;
 use super::entity_store::{
     EntityBackend, EntityStore, EntityStoreDowncast, EntityStoreDowncastHelper, ReadReference,
@@ -14,6 +15,7 @@ use std::any::TypeId;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+#[doc(hidden)]
 pub struct EntityTypeData {
     store: Box<dyn EntityStoreDowncast>,
     component_manager: Arc<dyn ComponentManagerDowncast>,
