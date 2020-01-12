@@ -35,7 +35,7 @@ impl ECSManager {
         T: Entity + Sync + Send + 'static,
         U: EntityBackend<T> + Sync + Send + 'static,
     {
-        if self.types.contains_key(&TypeId::of::<U>()) {
+        if self.types.contains_key(&TypeId::of::<T>()) {
             return Err(format_err!(
                 "entity type already registered: {}",
                 any::type_name::<T>()
@@ -61,7 +61,7 @@ impl ECSManager {
     {
         let type_id = TypeId::of::<T>();
 
-        if !self.types.contains_key(&TypeId::of::<U>()) {
+        if !self.types.contains_key(&TypeId::of::<T>()) {
             return Err(format_err!(
                 "entity type not registered: {}",
                 any::type_name::<T>()

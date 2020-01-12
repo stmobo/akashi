@@ -1,9 +1,8 @@
 //! Utilities for working with in-game card categories or types.
 
 use crate::card::Card;
-use crate::ecs::entity_store::{
-    EntityBackend, EntityStore, ReadReference, Store, StoreHandle, WriteReference,
-};
+use crate::ecs::ecs_manager::ECSManager;
+use crate::ecs::entity_store::{ReadReference, StoreHandle, WriteReference};
 use crate::ecs::{Component, ComponentBackend, ComponentManager, Entity};
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 use crate::util::Result;
@@ -82,22 +81,12 @@ impl Entity for CardType {
 #[derive(Clone)]
 pub struct AttachedCardType {
     type_id: Snowflake,
-    store: Arc<dyn EntityStore<CardType> + Sync + Send + 'static>,
-    component_manager: Arc<ComponentManager<CardType>>,
 }
 
 impl AttachedCardType {
     /// Constructs a new `AttachedCardType` instance.
-    pub fn new<T: EntityBackend<CardType> + Sync + Send + 'static>(
-        type_id: Snowflake,
-        store: Arc<Store<CardType, T>>,
-        component_manager: Arc<ComponentManager<CardType>>,
-    ) -> AttachedCardType {
-        AttachedCardType {
-            type_id,
-            store,
-            component_manager,
-        }
+    pub fn new(type_id: Snowflake) -> AttachedCardType {
+        AttachedCardType { type_id }
     }
 
     /// Gets the ID of the associated [`CardType`] entity.
@@ -108,17 +97,27 @@ impl AttachedCardType {
     /// Gets an immutable, read-locked reference to the actual
     /// [`CardType`] entity referred to by this component
     /// from storage.
-    pub fn load(&self) -> Result<ReadReference<StoreHandle<CardType>>> {
-        self.store
-            .load(self.type_id, self.component_manager.clone())
+    pub fn load(&self, ecs: &ECSManager) -> Result<ReadReference<StoreHandle<CardType>>> {
+        ecs.load(self.type_id)
     }
 
     /// Gets a mutable, write-locked reference to the actual
     /// [`CardType`] entity referred to by this component
     /// from storage.
-    pub fn load_mut(&self) -> Result<WriteReference<StoreHandle<CardType>>> {
-        self.store
-            .load_mut(self.type_id, self.component_manager.clone())
+    pub fn load_mut(&self, ecs: &ECSManager) -> Result<WriteReference<StoreHandle<CardType>>> {
+        ecs.load_mut(self.type_id)
+    }
+}
+
+impl From<Snowflake> for AttachedCardType {
+    fn from(id: Snowflake) -> AttachedCardType {
+        AttachedCardType { type_id: id }
+    }
+}
+
+impl From<AttachedCardType> for Snowflake {
+    fn from(card_type: AttachedCardType) -> Snowflake {
+        card_type.type_id
     }
 }
 
@@ -130,57 +129,34 @@ impl Component<Card> for AttachedCardType {}
 ///
 /// The wrapped storage type needs to implement loading and storing
 /// card type IDs via the `ComponentBackend<Card, Snowflake>` trait.
-pub struct CardTypeLayer<T, U>
+pub struct CardTypeLayer<T>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     component_backend: T,
-    entity_store: Arc<Store<CardType, U>>,
-    component_manager: Arc<ComponentManager<CardType>>,
 }
 
-impl<T, U> CardTypeLayer<T, U>
+impl<T> CardTypeLayer<T>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     /// Constructs a new `CardTypeLayer`.
-    pub fn new(
-        component_backend: T,
-        entity_store: Arc<Store<CardType, U>>,
-        component_manager: Arc<ComponentManager<CardType>>,
-    ) -> CardTypeLayer<T, U> {
-        CardTypeLayer {
-            component_backend,
-            entity_store,
-            component_manager,
-        }
+    pub fn new(component_backend: T) -> CardTypeLayer<T> {
+        CardTypeLayer { component_backend }
     }
 }
 
-impl<T, U> ComponentBackend<Card, AttachedCardType> for CardTypeLayer<T, U>
+impl<T> ComponentBackend<Card, AttachedCardType> for CardTypeLayer<T>
 where
     T: ComponentBackend<Card, Snowflake> + Sync + Send + 'static,
-    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     fn load(&self, entity: &Card) -> Result<Option<AttachedCardType>> {
         let attached_id: Option<Snowflake> = self.component_backend.load(entity)?;
-
-        if let Some(type_id) = attached_id {
-            Ok(Some(AttachedCardType {
-                type_id: type_id,
-                store: self.entity_store.clone(),
-                component_manager: self.component_manager.clone(),
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(attached_id.map(|x| x.into()))
     }
 
     fn store(&self, entity: &Card, component: AttachedCardType) -> Result<()> {
-        self.component_backend
-            .store(entity, component.type_id.into())
+        self.component_backend.store(entity, component.into())
     }
 
     fn exists(&self, entity: &Card) -> Result<bool> {
@@ -206,50 +182,38 @@ mod tests {
     }
 
     struct Fixtures {
-        card_store: Arc<Store<Card, LocalEntityStorage<Card>>>,
-        card_type_store: Arc<Store<CardType, LocalEntityStorage<CardType>>>,
-        card_cm: Arc<ComponentManager<Card>>,
-        card_type_cm: Arc<ComponentManager<CardType>>,
+        ecs_manager: ECSManager,
         snowflake_gen: SnowflakeGenerator,
     }
 
     impl Fixtures {
         fn new() -> Fixtures {
-            let s: Arc<LocalEntityStorage<Card>> = Arc::new(LocalEntityStorage::new());
-            let card_store = Arc::new(Store::new(s));
+            let mut ecs_manager = ECSManager::new();
 
-            let s: Arc<LocalEntityStorage<CardType>> = Arc::new(LocalEntityStorage::new());
-            let card_type_store = Arc::new(Store::new(s));
+            ecs_manager
+                .register_entity(LocalEntityStorage::<Card>::new())
+                .unwrap();
 
-            let mut card_type_cm: ComponentManager<CardType> = ComponentManager::new();
-            card_type_cm
+            ecs_manager
+                .register_entity(LocalEntityStorage::<CardType>::new())
+                .unwrap();
+
+            ecs_manager
                 .register_component(
                     "MockTypeData",
                     LocalComponentStorage::<CardType, MockTypeData>::new(),
                 )
                 .unwrap();
 
-            let card_type_cm = Arc::new(card_type_cm);
-
-            let mut card_cm: ComponentManager<Card> = ComponentManager::new();
-            card_cm
+            ecs_manager
                 .register_component(
                     "CardType",
-                    CardTypeLayer::new(
-                        LocalComponentStorage::<Card, Snowflake>::new(),
-                        card_type_store.clone(),
-                        card_type_cm.clone(),
-                    ),
+                    CardTypeLayer::new(LocalComponentStorage::<Card, Snowflake>::new()),
                 )
                 .unwrap();
 
-            let card_cm = Arc::new(card_cm);
-
             Fixtures {
-                card_store,
-                card_type_store,
-                card_cm,
-                card_type_cm,
+                ecs_manager,
                 snowflake_gen: SnowflakeGenerator::new(0, 0),
             }
         }
@@ -264,23 +228,20 @@ mod tests {
         let card_id: Snowflake;
 
         // Create and store a new card with an attached type ID.
-        let mut card = Card::generate(&mut fixtures.snowflake_gen, fixtures.card_cm.clone());
-        card.set_component(AttachedCardType::new(
-            type_id,
-            fixtures.card_type_store.clone(),
-            fixtures.card_type_cm.clone(),
-        ))
-        .unwrap();
+        let mut card: Card = fixtures
+            .ecs_manager
+            .create(fixtures.snowflake_gen.generate())
+            .unwrap();
+
+        card.set_component(AttachedCardType::new(type_id)).unwrap();
 
         card_id = card.id();
-        fixtures.card_store.store(card).unwrap();
+        fixtures.ecs_manager.store(card).unwrap();
 
         // Now load it again and check to see if the CardTypeLayer
         // wrapper code loaded the correct type ID.
-        let handle = fixtures
-            .card_store
-            .load(card_id, fixtures.card_cm.clone())
-            .unwrap();
+        let handle = fixtures.ecs_manager.load::<Card>(card_id).unwrap();
+
         let card = handle.get().unwrap();
         let attached_type: AttachedCardType = card.get_component().unwrap().unwrap();
 
@@ -292,8 +253,11 @@ mod tests {
         let mut fixtures = Fixtures::new();
 
         // Create and store a new Card Type with attached MockTypeData.
-        let mut card_type =
-            CardType::generate(&mut fixtures.snowflake_gen, fixtures.card_type_cm.clone());
+        let mut card_type: CardType = fixtures
+            .ecs_manager
+            .create(fixtures.snowflake_gen.generate())
+            .unwrap();
+
         let type_id = card_type.id();
 
         let type_data = MockTypeData {
@@ -302,27 +266,22 @@ mod tests {
         };
 
         card_type.set_component(type_data).unwrap();
-        fixtures.card_type_store.store(card_type).unwrap();
+        fixtures.ecs_manager.store(card_type).unwrap();
 
         // Create and store a new card with an attached type ID.
         let card_id: Snowflake;
-        let mut card = Card::generate(&mut fixtures.snowflake_gen, fixtures.card_cm.clone());
+        let mut card: Card = fixtures
+            .ecs_manager
+            .create(fixtures.snowflake_gen.generate())
+            .unwrap();
 
-        card.set_component(AttachedCardType::new(
-            type_id,
-            fixtures.card_type_store.clone(),
-            fixtures.card_type_cm.clone(),
-        ))
-        .unwrap();
+        card.set_component(AttachedCardType::new(type_id)).unwrap();
 
         card_id = card.id();
-        fixtures.card_store.store(card).unwrap();
+        fixtures.ecs_manager.store(card).unwrap();
 
         // Reload the card from storage.
-        let handle = fixtures
-            .card_store
-            .load(card_id, fixtures.card_cm.clone())
-            .unwrap();
+        let handle = fixtures.ecs_manager.load::<Card>(card_id).unwrap();
         let card = handle.get().unwrap();
 
         // Get attached type data.
@@ -330,7 +289,7 @@ mod tests {
         assert_eq!(attached_type.type_id, type_id);
 
         // Attempt to load the type's attached MockTypeData.
-        let handle = attached_type.load().unwrap();
+        let handle = attached_type.load(&fixtures.ecs_manager).unwrap();
         let card_type = handle.get().unwrap();
         let type_data: MockTypeData = card_type.get_component().unwrap().unwrap();
 
