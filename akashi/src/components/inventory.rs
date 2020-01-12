@@ -24,7 +24,7 @@ rental! {
     }
 }
 
-use inventory_rental::InventoryWriteRental;
+pub use inventory_rental::InventoryWriteRental;
 
 /// Represents a collection of [`Card`] entities.
 ///
@@ -58,18 +58,45 @@ impl Inventory {
         Ok(self.ids.insert(id))
     }
 
+    /// Adds an open write-locked handle to a [`Card`] to this inventory.
+    pub fn insert_handle(
+        &mut self,
+        handle: HandleWriteRef<StoreReference<StoreHandle<Card>>, StoreHandle<Card>>,
+    ) -> bool {
+        let rental =
+            InventoryWriteRental::new(Box::new(handle), |handle| handle.suffix.get_mut().unwrap());
+
+        let id = rental.id();
+        self.card_cache.insert(id, rental);
+        self.ids.insert(id)
+    }
+
     /// Checks to see if this inventory contains the given [`Card`] ID.
     pub fn contains(&self, id: Snowflake) -> bool {
         self.ids.contains(&id)
     }
 
-    /// Removes a [`Card`] from this inventory by ID and returns it,
-    /// if any.
-    ///
-    /// Returns whether the ID was present in the inventory to begin with.
-    pub fn remove(&mut self, id: Snowflake) -> bool {
-        self.card_cache.remove(&id);
-        self.ids.remove(&id)
+    /// Removes a [`Card`] from this inventory by ID and return a handle to
+    /// it, if any.
+    pub fn remove(
+        &mut self,
+        id: Snowflake,
+        entity_manager: &EntityManager,
+    ) -> Option<InventoryWriteRental> {
+        self.ids.remove(&id);
+
+        if self.card_cache.contains_key(&id) {
+            self.card_cache.remove(&id)
+        } else {
+            let handle = entity_manager.load_mut::<Card>(id).ok()?;
+            if handle.exists() {
+                Some(InventoryWriteRental::new(Box::new(handle), |handle| {
+                    handle.suffix.get_mut().unwrap()
+                }))
+            } else {
+                None
+            }
+        }
     }
 
     /// Checks to see if this inventory is empty.
@@ -193,7 +220,7 @@ mod tests {
         r.set_component(TestComponent(50)).unwrap();
         drop(r);
 
-        assert!(inv.remove(id));
+        assert!(inv.remove(id, &ent_mgr).is_some());
     }
 
     #[test]

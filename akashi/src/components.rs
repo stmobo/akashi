@@ -8,7 +8,7 @@ pub mod resource;
 pub use card_type::{AttachedCardType, CardType, CardTypeLayer};
 
 #[doc(inline)]
-pub use inventory::Inventory;
+pub use inventory::{Inventory, InventoryBackendWrapper};
 
 #[doc(inline)]
 pub use resource::Resource;

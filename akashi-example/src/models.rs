@@ -1,11 +1,11 @@
 // Data models used in the API exposed by this example game.
 use failure::Error;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use std::sync::Arc;
 
 use akashi::components::{Inventory, Resource};
-use akashi::{Card, Component, ComponentManager, Entity, Player, Snowflake};
+use akashi::{Card, Component, Entity, EntityManager, Player, Snowflake};
+
+use failure::format_err;
 
 #[derive(Debug, Clone)]
 pub struct ResourceA(pub Resource);
@@ -33,14 +33,18 @@ pub struct PlayerModel {
 }
 
 impl PlayerModel {
-    pub fn new(pl: &Player) -> Result<PlayerModel, Error> {
+    pub fn new(pl: &Player, entity_manager: &EntityManager) -> Result<PlayerModel, Error> {
         let rsc_a: Option<ResourceA> = pl.get_component()?;
         let inv: Option<Inventory> = pl.get_component()?;
         let mut inv_model: Vec<CardModel> = Vec::new();
 
-        if let Some(v) = inv {
+        if let Some(mut v) = inv {
             inv_model.reserve(v.len());
-            for card in v.iter() {
+            let ids: Vec<Snowflake> = v.iter_ids().copied().collect();
+            for id in ids {
+                let card = v
+                    .get(id, entity_manager)
+                    .ok_or_else(|| format_err!("could not find card with ID {}", id))?;
                 inv_model.push(CardModel::new(card)?);
             }
         }
@@ -108,8 +112,8 @@ impl CardModel {
         })
     }
 
-    pub fn as_card(self, cm: Arc<ComponentManager<Card>>) -> Result<Card, Error> {
-        let mut card = Card::new(self.id, cm, HashSet::new());
+    pub fn as_card(self, entity_manager: &EntityManager) -> Result<Card, Error> {
+        let mut card: Card = entity_manager.create(self.id).unwrap();
         let name = CardName(self.name);
         let value = CardValue(self.value);
 

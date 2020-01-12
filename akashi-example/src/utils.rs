@@ -8,40 +8,54 @@ use std::sync::Mutex;
 
 use crate::models::{CardName, CardType, CardValue, ResourceA};
 
-use akashi::local_storage::{LocalComponentStorage, LocalInventoryStore, SharedLocalStore};
-use akashi::{Card, ComponentManager, Player, Snowflake, SnowflakeGenerator};
+use akashi::components::InventoryBackendWrapper;
+use akashi::local_storage::{LocalComponentStorage, LocalEntityStorage};
+use akashi::{Card, EntityManager, Player, Snowflake, SnowflakeGenerator};
 
 #[cfg(test)]
 use std::any::type_name;
-
-#[cfg(test)]
-use std::sync::Arc;
 
 #[cfg(test)]
 use actix_web::dev;
 
 pub type SnowflakeGeneratorState = web::Data<Mutex<SnowflakeGenerator>>;
 
-pub fn card_component_manager() -> ComponentManager<Card> {
-    let mut cm = ComponentManager::new();
-    cm.register_component("CardName", LocalComponentStorage::<Card, CardName>::new());
-    cm.register_component("CardValue", LocalComponentStorage::<Card, CardValue>::new());
-    cm.register_component("CardType", LocalComponentStorage::<Card, CardType>::new());
-    cm
-}
+pub fn setup_entity_manager() -> EntityManager {
+    let mut ent_mgr = EntityManager::new();
 
-pub fn player_component_manager(shared_store: &SharedLocalStore) -> ComponentManager<Player> {
-    let mut cm = ComponentManager::new();
-    cm.register_component(
-        "Inventory",
-        LocalInventoryStore::new(shared_store.backend()),
-    );
-    cm.register_component(
-        "ResourceA",
-        LocalComponentStorage::<Player, ResourceA>::new(),
-    );
+    ent_mgr
+        .register_entity(LocalEntityStorage::<Player>::new())
+        .unwrap();
 
-    cm
+    ent_mgr
+        .register_entity(LocalEntityStorage::<Card>::new())
+        .unwrap();
+
+    ent_mgr
+        .register_component("CardName", LocalComponentStorage::<Card, CardName>::new())
+        .expect("initialization failed");
+    ent_mgr
+        .register_component("CardValue", LocalComponentStorage::<Card, CardValue>::new())
+        .expect("initialization failed");
+    ent_mgr
+        .register_component("CardType", LocalComponentStorage::<Card, CardType>::new())
+        .expect("initialization failed");
+
+    ent_mgr
+        .register_component(
+            "Inventory",
+            InventoryBackendWrapper::new(LocalComponentStorage::<Player, Vec<Snowflake>>::new()),
+        )
+        .expect("initialization failed");
+
+    ent_mgr
+        .register_component(
+            "ResourceA",
+            LocalComponentStorage::<Player, ResourceA>::new(),
+        )
+        .expect("initialization failed");
+
+    ent_mgr
 }
 
 #[cfg(test)]
@@ -50,22 +64,25 @@ pub fn snowflake_generator(group_id: u64, worker_id: u64) -> SnowflakeGeneratorS
 }
 
 #[cfg(test)]
-pub fn store() -> web::Data<SharedLocalStore> {
-    web::Data::new(SharedLocalStore::new())
+pub fn create_new_player(
+    ent_mgr: &EntityManager,
+    snowflake_gen: &mut SnowflakeGenerator,
+) -> (Snowflake, Player) {
+    let pl: Player = ent_mgr.create(snowflake_gen.generate()).unwrap();
+    let id = pl.id();
+
+    (id, pl)
 }
 
 #[cfg(test)]
-pub fn create_new_player(
-    shared_store: &SharedLocalStore,
+pub fn create_new_card(
+    ent_mgr: &EntityManager,
     snowflake_gen: &mut SnowflakeGenerator,
-    cm: Arc<ComponentManager<Player>>,
-) -> (Snowflake, Player) {
-    let players = shared_store.players();
-    let pl = Player::empty(snowflake_gen, cm);
-    let pl_id = pl.id();
-    players.store(pl.clone()).unwrap();
+) -> (Snowflake, Card) {
+    let card: Card = ent_mgr.create(snowflake_gen.generate()).unwrap();
+    let id = card.id();
 
-    (pl_id, pl)
+    (id, card)
 }
 
 pub fn convert_blocking_err(e: BlockingError<Error>) -> Error {

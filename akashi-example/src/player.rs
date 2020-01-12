@@ -4,34 +4,28 @@ use actix_web::{web, HttpResponse, Scope};
 use failure::Error;
 use serde::Deserialize;
 
-use akashi::ecs::entity_store::{SharedStore, Store, EntityBackend};
-use akashi::{ComponentManager, Entity, Player, Snowflake};
+use akashi::{Entity, EntityManager, Player, Snowflake};
 
 use crate::models::{PlayerModel, ResourceA};
 use crate::utils;
 use crate::utils::{player_not_found, BadTransactionError, Pagination, SnowflakeGeneratorState};
 
 // GET /players
-async fn list_players<T, U>(
+async fn list_players(
     query: web::Query<Pagination>,
-    shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Result<HttpResponse, Error>
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
-    let cm = cm.into_inner();
+    entity_manager: web::Data<EntityManager>,
+) -> Result<HttpResponse, Error> {
     let players: Vec<PlayerModel> = web::block(move || -> Result<Vec<PlayerModel>, Error> {
-        let store: &Store<Player, U> = shared_store.get_store();
-        let keys = store.keys(query.page, query.limit)?;
+        let keys = entity_manager.keys::<Player>(query.page, query.limit)?;
 
         let vals: Vec<PlayerModel> = keys
             .iter()
             .filter_map(|key| -> Option<PlayerModel> {
-                let handle = store.load(*key, cm.clone()).ok()?;
+                let handle = entity_manager.load::<Player>(*key).ok()?;
 
-                handle.get().and_then(|pl| PlayerModel::new(pl).ok())
+                handle
+                    .get()
+                    .and_then(|pl| PlayerModel::new(pl, &*entity_manager).ok())
             })
             .collect();
         Ok(vals)
@@ -43,25 +37,17 @@ where
 }
 
 // GET /players/{playerid}
-async fn get_player<T, U>(
+async fn get_player(
     path: web::Path<(Snowflake,)>,
-    shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Result<HttpResponse, Error>
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
+    entity_manager: web::Data<EntityManager>,
+) -> Result<HttpResponse, Error> {
     let id: Snowflake = path.0;
-    let cm = cm.into_inner();
-
     let r: PlayerModel = web::block(move || -> Result<PlayerModel, Error> {
-        let store: &Store<Player, U> = shared_store.get_store();
-        let handle = store.load(id, cm)?;
+        let handle = entity_manager.load::<Player>(id)?;
 
         match handle.get() {
             None => Err(player_not_found(id)),
-            Some(r) => PlayerModel::new(r),
+            Some(r) => PlayerModel::new(r, &*entity_manager),
         }
     })
     .await
@@ -80,23 +66,16 @@ enum Transaction {
 }
 
 // POST /players/{playerid}/resource_a
-async fn resource_a_transaction<T, U>(
+async fn resource_a_transaction(
     path: web::Path<(Snowflake,)>,
-    shared_store: web::Data<T>,
     transaction: web::Json<Transaction>,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Result<HttpResponse, Error>
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
+    entity_manager: web::Data<EntityManager>,
+) -> Result<HttpResponse, Error> {
     let player_id = path.0;
     let transaction = transaction.into_inner();
-    let cm = cm.into_inner();
 
     let res = web::block(move || -> Result<PlayerModel, Error> {
-        let store: &Store<Player, U> = shared_store.get_store();
-        let mut handle = store.load_mut(player_id, cm.clone())?;
+        let mut handle = entity_manager.load_mut::<Player>(player_id)?;
         let pl = handle
             .get_mut()
             .ok_or_else(|| player_not_found(player_id))?;
@@ -116,7 +95,7 @@ where
                 .checked_set(val.into())
                 .map_err(|e| BadTransactionError::new(e.to_string()))?,
             Transaction::TransferFrom((from_pl_id, val)) => {
-                let mut other_handle = store.load_mut(from_pl_id, cm.clone())?;
+                let mut other_handle = entity_manager.load_mut::<Player>(from_pl_id)?;
                 let other_pl = other_handle
                     .get_mut()
                     .ok_or_else(|| player_not_found(from_pl_id))?;
@@ -137,7 +116,7 @@ where
         };
 
         pl.set_component(rsc_a)?;
-        let ret = PlayerModel::new(pl);
+        let ret = PlayerModel::new(pl, &*entity_manager);
         handle.store()?;
 
         ret
@@ -149,21 +128,14 @@ where
 }
 
 // DELETE /players/{playerid}
-async fn delete_player<T, U>(
+async fn delete_player(
     path: web::Path<(Snowflake,)>,
-    shared_store: web::Data<T>,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Result<HttpResponse, Error>
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
+    entity_manager: web::Data<EntityManager>,
+) -> Result<HttpResponse, Error> {
     let id: Snowflake = path.0;
-    let cm = cm.into_inner();
 
     web::block(move || -> Result<(), Error> {
-        let store: &Store<Player, U> = shared_store.get_store();
-        let mut handle = store.load_mut(id, cm)?;
+        let mut handle = entity_manager.load_mut::<Player>(id)?;
 
         if !handle.exists() {
             Err(player_not_found(id))
@@ -179,35 +151,24 @@ where
 }
 
 // POST /players/new
-async fn new_player<T, U>(
-    shared_store: web::Data<T>,
+async fn new_player(
+    entity_manager: web::Data<EntityManager>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Result<HttpResponse, Error>
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
-    let cm = cm.into_inner();
+) -> Result<HttpResponse, Error> {
     let pl = web::block(move || -> Result<PlayerModel, Error> {
-        let new_pl: Player;
+        let mut snowflake_gen = sg
+            .lock()
+            .map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
+        let new_pl: Player = entity_manager.create(snowflake_gen.generate()).unwrap();
+        drop(snowflake_gen);
 
-        {
-            let mut snowflake_gen = sg
-                .lock()
-                .map_err(|_e| format_err!("snowflake generator lock poisoned"))?;
-            new_pl = Player::empty(&mut snowflake_gen, cm.clone());
-        }
-
-        let store: &Store<Player, U> = shared_store.get_store();
-
-        let mut handle = store.load_mut(new_pl.id(), cm.clone())?;
+        let mut handle = entity_manager.load_mut::<Player>(new_pl.id())?;
 
         handle.replace(new_pl);
         handle.store()?;
 
         // The unwrap shouldn't fail since we just replaced it with new_pl.
-        let model = PlayerModel::new(handle.get().unwrap())?;
+        let model = PlayerModel::new(handle.get().unwrap(), &*entity_manager)?;
         Ok(model)
     })
     .await
@@ -216,28 +177,22 @@ where
     Ok(HttpResponse::Ok().json(pl))
 }
 
-pub fn bind_routes<T, U>(
+pub fn bind_routes(
     scope: Scope,
-    store: web::Data<T>,
+    entity_manager: web::Data<EntityManager>,
     sg: SnowflakeGeneratorState,
-    cm: web::Data<ComponentManager<Player>>,
-) -> Scope
-where
-    T: SharedStore<Player, U> + Send + Sync + 'static,
-    U: EntityBackend<Player> + Send + Sync + 'static,
-{
+) -> Scope {
     scope
-        .app_data(store)
+        .app_data(entity_manager)
         .app_data(sg)
-        .app_data(cm)
-        .route("/{playerid}", web::get().to(get_player::<T, U>))
-        .route("/{playerid}", web::delete().to(delete_player::<T, U>))
+        .route("/{playerid}", web::get().to(get_player))
+        .route("/{playerid}", web::delete().to(delete_player))
         .route(
             "/{playerid}/resource_a",
-            web::post().to(resource_a_transaction::<T, U>),
+            web::post().to(resource_a_transaction),
         )
-        .route("/new", web::post().to(new_player::<T, U>))
-        .route("", web::get().to(list_players::<T, U>))
+        .route("/new", web::post().to(new_player))
+        .route("", web::get().to(list_players))
 }
 
 #[cfg(test)]
@@ -248,44 +203,34 @@ mod tests {
 
     use crate::utils;
     use crate::utils::{
-        get_body_json, get_body_str, snowflake_generator, store, ObjectNotFoundError,
+        create_new_player, get_body_json, get_body_str, snowflake_generator, ObjectNotFoundError,
     };
 
-    use akashi::local_storage::SharedLocalStore;
     use akashi::SnowflakeGenerator;
 
     #[test]
     fn test_new_player() {
-        let shared_store = store();
         let sg = snowflake_generator(0, 0);
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
 
-        let resp = block_on(new_player(shared_store.clone(), sg, cm)).unwrap();
+        let resp = block_on(new_player(em.clone(), sg)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
-        let players = shared_store.players();
-        assert_eq!(players.keys(0, 20).unwrap().len(), 1);
+        let players = em.keys::<Player>(0, 20).unwrap();
+        assert_eq!(players.len(), 1);
     }
 
     #[test]
     fn test_get_player_exists() {
-        let shared_store = SharedLocalStore::new();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let players = shared_store.players();
-        let pl = Player::empty(&mut snowflake_gen, cm.clone().into_inner());
-        let id = pl.id();
-        let model = PlayerModel::new(&pl).unwrap();
+        let (id, pl) = create_new_player(&*em, &mut snowflake_gen);
+        let model = PlayerModel::new(&pl, &*em).unwrap();
 
-        players.store(pl).unwrap();
+        em.store(pl).unwrap();
 
-        let resp = block_on(get_player(
-            web::Path::from((id,)),
-            web::Data::new(shared_store),
-            cm,
-        ))
-        .unwrap();
+        let resp = block_on(get_player(web::Path::from((id,)), em)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: PlayerModel = get_body_json(&resp);
@@ -294,220 +239,176 @@ mod tests {
 
     #[test]
     fn test_get_player_not_exists() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
-        let resp = block_on(get_player(web::Path::from((id,)), shared_store, cm));
+        let resp = block_on(get_player(web::Path::from((id,)), em));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
 
     #[test]
     fn test_delete_player_exists() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
 
-        let players = shared_store.players();
-        let mut pl = Player::empty(&mut snowflake_gen, cm.clone().into_inner());
-        let id = pl.id();
+        let (id, mut pl) = create_new_player(&*em, &mut snowflake_gen);
 
         let rsc_a: ResourceA = 25.into();
         pl.set_component(rsc_a).unwrap();
 
-        players.store(pl.clone()).unwrap();
+        em.store(pl.clone()).unwrap();
 
-        assert_eq!(players.keys(0, 20).unwrap().len(), 1);
+        assert_eq!(em.keys::<Player>(0, 20).unwrap().len(), 1);
 
-        let resp = block_on(delete_player(
-            web::Path::from((id,)),
-            shared_store.clone(),
-            cm.clone(),
-        ))
-        .unwrap();
+        let resp = block_on(delete_player(web::Path::from((id,)), em.clone())).unwrap();
         assert_eq!(resp.status(), http::StatusCode::NO_CONTENT);
-        assert_eq!(shared_store.players().keys(0, 20).unwrap().len(), 0);
+        assert_eq!(em.keys::<Player>(0, 20).unwrap().len(), 0);
 
+        let cm = em.get_component_manager::<Player>().unwrap();
         let rsc_a: Option<ResourceA> = cm.get_component(&pl).unwrap();
         assert!(rsc_a.is_none());
     }
 
     #[test]
     fn test_delete_player_not_exists() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
         let id = snowflake_gen.generate();
 
-        let resp = block_on(delete_player(web::Path::from((id,)), shared_store, cm));
+        let resp = block_on(delete_player(web::Path::from((id,)), em));
         let _e: ObjectNotFoundError = utils::expect_error(resp);
     }
 
     #[test]
     fn test_player_transaction_add() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id, pl) = create_new_player(&*em, &mut snowflake_gen);
 
-        let players = shared_store.players();
-        let id = pl.id();
-        players.store(pl).unwrap();
+        em.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
-            shared_store.clone(),
             web::Json(Transaction::Add(10)),
-            cm,
+            em.clone(),
         ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
 
-        {
-            let handle = players.load(id, acm).unwrap();
+        let handle = em.load::<Player>(id).unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
-            let resp_pl: PlayerModel = get_body_json(&resp);
+        let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
+        let resp_pl: PlayerModel = get_body_json(&resp);
 
-            assert_eq!(resp_pl, stored_pl);
-            assert_eq!(stored_pl.resource_a, 10);
-        }
+        assert_eq!(resp_pl, stored_pl);
+        assert_eq!(stored_pl.resource_a, 10);
     }
 
     #[test]
     fn test_player_transaction_sub() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let mut pl = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id, mut pl) = create_new_player(&*em, &mut snowflake_gen);
 
         pl.set_component::<ResourceA>(50.into()).unwrap();
 
-        let players = shared_store.players();
-        let id = pl.id();
-        players.store(pl.clone()).unwrap();
+        em.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
-            shared_store.clone(),
             web::Json(Transaction::Sub(25)),
-            cm,
+            em.clone(),
         ))
         .unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
-        {
-            let handle = players.load(id, acm).unwrap();
+        let handle = em.load::<Player>(id).unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
-            let resp_pl: PlayerModel = get_body_json(&resp);
+        let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
+        let resp_pl: PlayerModel = get_body_json(&resp);
 
-            assert_eq!(resp_pl, stored_pl);
-            assert_eq!(stored_pl.resource_a, 25);
-        }
+        assert_eq!(resp_pl, stored_pl);
+        assert_eq!(stored_pl.resource_a, 25);
     }
 
     #[test]
     fn test_player_transaction_sub_validate() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let mut pl = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id, mut pl) = create_new_player(&*em, &mut snowflake_gen);
 
         pl.set_component::<ResourceA>(50.into()).unwrap();
-        let expected_player = PlayerModel::new(&pl).unwrap();
+        let expected_player = PlayerModel::new(&pl, &*em).unwrap();
 
-        let players = shared_store.players();
-        let id = pl.id();
-        players.store(pl).unwrap();
+        em.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
-            shared_store.clone(),
             web::Json(Transaction::Sub(60)),
-            cm,
+            em.clone(),
         ));
         let _e: BadTransactionError = utils::expect_error(resp);
 
-        {
-            let handle = players.load(id, acm).unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
+        let handle = em.load::<Player>(id).unwrap();
+        let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
 
-            assert_eq!(stored_pl, expected_player);
-            assert_eq!(stored_pl.resource_a, 50);
-        }
+        assert_eq!(stored_pl, expected_player);
+        assert_eq!(stored_pl.resource_a, 50);
     }
 
     #[test]
     fn test_player_transaction_set() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let pl = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id, pl) = create_new_player(&*em, &mut snowflake_gen);
 
-        let players = shared_store.players();
-        let id = pl.id();
-        players.store(pl).unwrap();
+        em.store(pl).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id,)),
-            shared_store.clone(),
             web::Json(Transaction::Set(100)),
-            cm,
+            em.clone(),
         ))
         .unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
-        {
-            let handle = players.load(id, acm).unwrap();
+        let handle = em.load::<Player>(id).unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
-            let resp_pl: PlayerModel = get_body_json(&resp);
+        let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
+        let resp_pl: PlayerModel = get_body_json(&resp);
 
-            assert_eq!(resp_pl, stored_pl);
-            assert_eq!(stored_pl.resource_a, 100);
-        }
+        assert_eq!(resp_pl, stored_pl);
+        assert_eq!(stored_pl.resource_a, 100);
     }
 
     #[test]
     fn test_player_transaction_transfer() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let mut pl_1 = Player::empty(&mut snowflake_gen, acm.clone());
-        let mut pl_2 = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id_1, mut pl_1) = create_new_player(&*em, &mut snowflake_gen);
+        let (id_2, mut pl_2) = create_new_player(&*em, &mut snowflake_gen);
 
         pl_1.set_component::<ResourceA>(110.into()).unwrap();
         pl_2.set_component::<ResourceA>(0.into()).unwrap();
 
-        let players = shared_store.players();
-        let id_1 = pl_1.id();
-        let id_2 = pl_2.id();
-
-        players.store(pl_1.clone()).unwrap();
-        players.store(pl_2.clone()).unwrap();
+        em.store(pl_1).unwrap();
+        em.store(pl_2).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
-            shared_store.clone(),
             web::Json(Transaction::TransferFrom((id_1, 50))),
-            cm.clone(),
+            em.clone(),
         ))
         .unwrap();
 
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         {
-            let handle = players.load(id_2, acm.clone()).unwrap();
+            let handle = em.load::<Player>(id_2).unwrap();
 
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
+            let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
             let resp_pl: PlayerModel = get_body_json(&resp);
 
             assert_eq!(resp_pl, stored_pl);
@@ -515,8 +416,8 @@ mod tests {
         }
 
         {
-            let handle = players.load(id_1, acm).unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
+            let handle = em.load::<Player>(id_1).unwrap();
+            let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
 
             assert_eq!(stored_pl.resource_a, 60);
         }
@@ -524,44 +425,37 @@ mod tests {
 
     #[test]
     fn test_player_transaction_transfer_validate() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
-        let mut pl_1 = Player::empty(&mut snowflake_gen, acm.clone());
-        let mut pl_2 = Player::empty(&mut snowflake_gen, acm.clone());
+        let (id_1, mut pl_1) = create_new_player(&*em, &mut snowflake_gen);
+        let (id_2, mut pl_2) = create_new_player(&*em, &mut snowflake_gen);
 
         pl_1.set_component::<ResourceA>(50.into()).unwrap();
         pl_2.set_component::<ResourceA>(0.into()).unwrap();
 
-        let players = shared_store.players();
-        let id_1 = pl_1.id();
-        let id_2 = pl_2.id();
+        let model_1 = PlayerModel::new(&pl_1, &*em).unwrap();
+        let model_2 = PlayerModel::new(&pl_2, &*em).unwrap();
 
-        let model_1 = PlayerModel::new(&pl_1).unwrap();
-        let model_2 = PlayerModel::new(&pl_2).unwrap();
-
-        players.store(pl_1.clone()).unwrap();
-        players.store(pl_2.clone()).unwrap();
+        em.store(pl_1).unwrap();
+        em.store(pl_2).unwrap();
 
         let resp = block_on(resource_a_transaction(
             web::Path::from((id_2,)),
-            shared_store.clone(),
             web::Json(Transaction::TransferFrom((id_1, 60))),
-            cm.clone(),
+            em.clone(),
         ));
         let _e: BadTransactionError = utils::expect_error(resp);
 
         {
-            let handle = players.load(id_1, acm.clone()).unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
+            let handle = em.load::<Player>(id_1).unwrap();
+            let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
 
             assert_eq!(stored_pl, model_1);
         }
 
         {
-            let handle = players.load(id_2, acm).unwrap();
-            let stored_pl = PlayerModel::new(handle.get().unwrap()).unwrap();
+            let handle = em.load::<Player>(id_2).unwrap();
+            let stored_pl = PlayerModel::new(handle.get().unwrap(), &*em).unwrap();
 
             assert_eq!(stored_pl, model_2);
         }
@@ -569,11 +463,10 @@ mod tests {
 
     #[test]
     fn test_list_players_empty() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
+        let em = web::Data::new(utils::setup_entity_manager());
         let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
 
-        let resp = block_on(list_players(query, shared_store, cm)).unwrap();
+        let resp = block_on(list_players(query, em)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body = get_body_str(&resp);
@@ -582,19 +475,16 @@ mod tests {
 
     #[test]
     fn test_list_players_nonempty() {
-        let shared_store = store();
-        let cm = web::Data::new(utils::player_component_manager(&shared_store));
-        let acm = cm.clone().into_inner();
-        let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
+        let em = web::Data::new(utils::setup_entity_manager());
         let mut snowflake_gen = SnowflakeGenerator::new(0, 0);
+        let (_id, pl) = create_new_player(&*em, &mut snowflake_gen);
 
-        let players = shared_store.players();
-        let pl = Player::empty(&mut snowflake_gen, acm);
-        let model = PlayerModel::new(&pl).unwrap();
+        let query = web::Query::<Pagination>::from_query("?page=0&limit=20").unwrap();
+        let model = PlayerModel::new(&pl, &*em).unwrap();
 
-        players.store(pl).unwrap();
+        em.store(pl).unwrap();
 
-        let resp = block_on(list_players(query, shared_store, cm)).unwrap();
+        let resp = block_on(list_players(query, em)).unwrap();
         assert_eq!(resp.status(), http::StatusCode::OK);
 
         let body: Vec<PlayerModel> = get_body_json(&resp);
