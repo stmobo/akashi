@@ -133,7 +133,7 @@ impl Component<Card> for AttachedCardType {}
 pub struct CardTypeLayer<T, U>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: EntityBackend<CardType> + 'static,
+    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     component_backend: T,
     entity_store: Arc<Store<CardType, U>>,
@@ -143,7 +143,7 @@ where
 impl<T, U> CardTypeLayer<T, U>
 where
     T: ComponentBackend<Card, Snowflake> + 'static,
-    U: EntityBackend<CardType> + 'static,
+    U: EntityBackend<CardType> + Sync + Send + 'static,
 {
     /// Constructs a new `CardTypeLayer`.
     pub fn new(

@@ -73,7 +73,7 @@ pub fn write_store_reference<T: 'static>(head: StoreReference<T>) -> WriteRefere
 pub trait SharedStore<T, U>
 where
     T: Entity + 'static,
-    U: EntityBackend<T> + 'static,
+    U: EntityBackend<T> + Sync + Send + 'static,
 {
     fn get_store<'a>(&'a self) -> &'a Store<T, U>;
 }
@@ -190,7 +190,7 @@ where
 pub struct Store<T, U>
 where
     T: Entity + 'static,
-    U: EntityBackend<T> + 'static,
+    U: EntityBackend<T> + Sync + Send + 'static,
 {
     backend: Arc<U>,
     refs: DashMap<Snowflake, StoredHandleData<T>>,
@@ -454,7 +454,7 @@ where
 impl<T, U> fmt::Debug for Store<T, U>
 where
     T: Entity + 'static,
-    U: EntityBackend<T> + 'static,
+    U: EntityBackend<T> + Sync + Send + 'static,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
