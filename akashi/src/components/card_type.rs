@@ -56,6 +56,10 @@ impl CardType {
 }
 
 impl Entity for CardType {
+    fn new(id: Snowflake, cm: Arc<ComponentManager<Self>>, components: HashSet<TypeId>) -> Self {
+        CardType::new(id, cm, components)
+    }
+
     fn id(&self) -> Snowflake {
         self.type_id
     }

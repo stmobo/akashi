@@ -2,14 +2,14 @@
 
 use super::component_store::{ComponentBackend, ComponentTypeData};
 use super::entity::Entity;
+use super::TypeNotFoundError;
 use crate::util::Result;
 
 use std::any;
 use std::any::TypeId;
 use std::collections::HashMap;
 
-use downcast_rs::Downcast;
-use failure::Fail;
+use downcast_rs::{Downcast, DowncastSync};
 
 /// Represents a Component within Akashi's Entity-Component-System
 /// architecture.
@@ -22,6 +22,11 @@ use failure::Fail;
 /// allow a type to interact with the rest of the ECS code.
 pub trait Component<T>: Downcast + Sync + Send {}
 downcast_rs::impl_downcast!(Component<T>);
+
+pub trait ComponentManagerDowncast: DowncastSync + Sync + Send {}
+downcast_rs::impl_downcast!(sync ComponentManagerDowncast);
+
+impl<T: Entity + 'static> ComponentManagerDowncast for ComponentManager<T> {}
 
 /// Manages operations related to [`Components`](Component), such as
 /// saving and loading [`Component`] data.
@@ -97,10 +102,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.store)(entity, Box::new(component))
         } else {
-            Err(TypeNotFoundError {
-                component_name: any::type_name::<U>().to_owned(),
-            }
-            .into())
+            Err(TypeNotFoundError::new(any::type_name::<U>().to_owned()).into())
         }
     }
 
@@ -118,10 +120,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
                 Ok(None)
             }
         } else {
-            Err(TypeNotFoundError {
-                component_name: any::type_name::<U>().to_owned(),
-            }
-            .into())
+            Err(TypeNotFoundError::new(any::type_name::<U>().to_owned()).into())
         }
     }
 
@@ -131,10 +130,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.delete)(entity)
         } else {
-            Err(TypeNotFoundError {
-                component_name: any::type_name::<U>().to_owned(),
-            }
-            .into())
+            Err(TypeNotFoundError::new(any::type_name::<U>().to_owned()).into())
         }
     }
 
@@ -145,10 +141,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         if let Some(data) = self.component_types.get(&type_id) {
             (data.delete)(entity)
         } else {
-            Err(TypeNotFoundError {
-                component_name: format!("{:?}", type_id),
-            }
-            .into())
+            Err(TypeNotFoundError::new(format!("{:?}", type_id)).into())
         }
     }
 
@@ -158,25 +151,7 @@ impl<T: Entity + 'static> ComponentManager<T> {
         if let Some(data) = self.component_types.get(&TypeId::of::<U>()) {
             (data.exists)(entity)
         } else {
-            Err(TypeNotFoundError {
-                component_name: any::type_name::<U>().to_owned(),
-            }
-            .into())
+            Err(TypeNotFoundError::new(any::type_name::<U>().to_owned()).into())
         }
-    }
-}
-
-#[derive(Fail, Debug)]
-#[fail(
-    display = "No handlers registered for Components of type {}",
-    component_name
-)]
-pub struct TypeNotFoundError {
-    component_name: String,
-}
-
-impl TypeNotFoundError {
-    pub fn new(component_name: String) -> TypeNotFoundError {
-        TypeNotFoundError { component_name }
     }
 }

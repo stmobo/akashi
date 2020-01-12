@@ -9,6 +9,7 @@ extern crate stable_deref_trait;
 use stable_deref_trait::CloneStableDeref;
 
 use dashmap::DashMap;
+use downcast_rs::{Downcast, DowncastSync};
 use parking_lot::{Once, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{ComponentManager, Entity};
@@ -370,6 +371,15 @@ where
     }
 }
 
+pub struct EntityStoreDowncastHelper<T: Entity + Sync + Send + 'static>(
+    pub Box<dyn EntityStore<T> + 'static>,
+);
+
+pub trait EntityStoreDowncast: Downcast + Send + Sync + 'static {}
+downcast_rs::impl_downcast!(EntityStoreDowncast);
+
+impl<T: Entity + Sync + Send + 'static> EntityStoreDowncast for EntityStoreDowncastHelper<T> {}
+
 /// An interface for loading and storing [`Entities`](Entity).
 ///
 /// This trait provides an abstract interface for loading and storing
@@ -379,9 +389,9 @@ where
 /// without having to carry around a [`EntityBackend`](EntityBackend)
 /// type parameter everywhere. This comes at the cost of dynamic dispatch
 /// overhead, though.
-pub trait EntityStore<T>
+pub trait EntityStore<T>: DowncastSync
 where
-    T: Entity + 'static,
+    T: Entity + Sync + Send + 'static,
 {
     fn load(
         &self,
@@ -401,9 +411,11 @@ where
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
 }
 
+downcast_rs::impl_downcast!(sync EntityStore<T> where T: Entity + Sync + Send + 'static);
+
 impl<T, U> EntityStore<T> for Store<T, U>
 where
-    T: Entity + 'static,
+    T: Entity + Sync + Send + 'static,
     U: EntityBackend<T> + Sync + Send + 'static,
 {
     fn load(
@@ -433,6 +445,7 @@ where
     fn exists(&self, id: Snowflake) -> Result<bool> {
         self.exists(id)
     }
+
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>> {
         self.keys(page, limit)
     }
@@ -514,6 +527,14 @@ mod tests {
     }
 
     impl Entity for MockStoredData {
+        fn new(
+            id: Snowflake,
+            _cm: Arc<ComponentManager<Self>>,
+            _components: HashSet<TypeId>,
+        ) -> Self {
+            MockStoredData::new(id, String::from(""), 0)
+        }
+
         fn id(&self) -> Snowflake {
             self.id
         }

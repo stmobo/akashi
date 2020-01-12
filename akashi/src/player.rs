@@ -62,6 +62,10 @@ impl PartialEq for Player {
 }
 
 impl Entity for Player {
+    fn new(id: Snowflake, cm: Arc<ComponentManager<Self>>, components: HashSet<TypeId>) -> Self {
+        Player::new(id, cm, components)
+    }
+
     fn id(&self) -> Snowflake {
         self.id()
     }

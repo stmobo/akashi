@@ -1,6 +1,7 @@
 //! General game objects to which [`Components`](Component) are attached.
 
-use super::component::{Component, ComponentManager, TypeNotFoundError};
+use super::component::{Component, ComponentManager};
+use super::TypeNotFoundError;
 use crate::snowflake::Snowflake;
 use crate::util::Result;
 
@@ -9,6 +10,7 @@ use std::any::TypeId;
 use std::collections::HashSet;
 use std::fmt;
 use std::result;
+use std::sync::Arc;
 
 use failure::{Error, Fail};
 
@@ -33,6 +35,12 @@ use failure::{Error, Fail};
 /// [`ComponentManager::register_component`](ComponentManager::register_component)
 /// will return [`TypeNotFoundError`](TypeNotFoundError).
 pub trait Entity: Sized + 'static {
+    fn new(
+        id: Snowflake,
+        component_manager: Arc<ComponentManager<Self>>,
+        components_attached: HashSet<TypeId>,
+    ) -> Self;
+
     /// Gets the unique ID used to identify this Entity and its
     /// Components.
     fn id(&self) -> Snowflake;

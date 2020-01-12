@@ -2,6 +2,7 @@
 
 pub mod component;
 pub mod component_store;
+pub mod ecs_manager;
 pub mod entity;
 pub mod entity_store;
 
@@ -17,9 +18,20 @@ pub use entity::Entity;
 #[doc(inline)]
 pub use entity_store::{EntityBackend, EntityStore, Store, StoreHandle};
 
-pub use component::TypeNotFoundError;
 pub use component_store::DowncastError;
 pub use entity::ClearComponentsError;
+
+#[derive(Fail, Debug)]
+#[fail(display = "No handlers registered for type {}", name)]
+pub struct TypeNotFoundError {
+    name: String,
+}
+
+impl TypeNotFoundError {
+    pub fn new(name: String) -> TypeNotFoundError {
+        TypeNotFoundError { name }
+    }
+}
 
 #[cfg(test)]
 mod tests {

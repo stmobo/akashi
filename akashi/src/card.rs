@@ -61,6 +61,10 @@ impl PartialEq for Card {
 }
 
 impl Entity for Card {
+    fn new(id: Snowflake, cm: Arc<ComponentManager<Card>>, components: HashSet<TypeId>) -> Card {
+        Card::new(id, cm, components)
+    }
+
     fn id(&self) -> Snowflake {
         self.id()
     }
