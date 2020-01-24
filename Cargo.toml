@@ -1,6 +1,5 @@
 [workspace]
 
 members = [
-    "akashi",
-    "akashi-example",
+    "akashi"
 ]
