@@ -1,16 +1,13 @@
 //! Unique 64-bit IDs.
 
+use std::fmt;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use crate::ecs::{Component, Entity};
+extern crate serde;
+use serde::{Deserialize, Serialize};
 
-/// This type is used to represent unique IDs across Akashi.
-///
-/// Snowflake instances encode a timestamp, application-specific
-/// "group" and "worker" IDs, as well as a sequence number to disambiguate
-/// objects made in the same millisecond.
-pub type Snowflake = u64;
+use crate::ecs::{Component, Entity};
 
 /// The epoch used when generating [`Snowflakes`](Snowflake), represented in
 /// milliseconds since the UNIX epoch.
@@ -34,25 +31,54 @@ const WORKER_ID_SHIFT: usize = SEQUENCE_BITS;
 const GROUP_ID_SHIFT: usize = SEQUENCE_BITS + WORKER_ID_BITS;
 const TIMESTAMP_SHIFT: usize = SEQUENCE_BITS + WORKER_ID_BITS + GROUP_ID_BITS;
 
-/// Get the time at which a [`Snowflake`] was generated.
-pub fn snowflake_timestamp(s: Snowflake) -> SystemTime {
-    let epoch: SystemTime = SystemTime::UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS);
-    epoch + Duration::from_millis(s >> TIMESTAMP_SHIFT)
+/// This type is used to represent unique IDs across Akashi.
+///
+/// Snowflake instances encode a timestamp, application-specific
+/// "group" and "worker" IDs, as well as a sequence number to disambiguate
+/// objects made in the same millisecond.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(from = "u64", into = "u64")]
+pub struct Snowflake(u64);
+
+impl Snowflake {
+    /// Get the time at which this `Snowflake` was generated.
+    pub fn timestamp(&self) -> SystemTime {
+        let epoch: SystemTime = SystemTime::UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS);
+        epoch + Duration::from_millis(self.0 >> TIMESTAMP_SHIFT)
+    }
+
+    /// Get the sequence number of this `Snowflake`.
+    pub fn sequence(&self) -> u64 {
+        self.0 & SEQUENCE_MASK
+    }
+
+    /// Get the worker ID that generated this `Snowflake`.
+    pub fn worker_id(&self) -> u64 {
+        (self.0 >> WORKER_ID_SHIFT) & MAX_WORKER_ID
+    }
+
+    /// Get the group ID that generated this `Snowflake`.
+    pub fn group_id(&self) -> u64 {
+        (self.0 >> GROUP_ID_SHIFT) & MAX_WORKER_ID
+    }
 }
 
-/// Get the sequence number from a [`Snowflake`].
-pub fn snowflake_sequence(s: Snowflake) -> u64 {
-    s & SEQUENCE_MASK
+impl From<u64> for Snowflake {
+    fn from(val: u64) -> Snowflake {
+        Snowflake(val)
+    }
 }
 
-/// Get the worker ID from a [`Snowflake`].
-pub fn snowflake_worker_id(s: Snowflake) -> u64 {
-    (s >> WORKER_ID_SHIFT) & MAX_WORKER_ID
+impl From<Snowflake> for u64 {
+    fn from(val: Snowflake) -> u64 {
+        val.0
+    }
 }
 
-/// Get the group ID from a [`Snowflake`].
-pub fn snowflake_group_id(s: Snowflake) -> u64 {
-    (s >> GROUP_ID_SHIFT) & MAX_GROUP_ID
+impl fmt::Display for Snowflake {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}]", self.0)
+    }
 }
 
 impl<E: Entity + 'static> Component<E> for Snowflake {}
@@ -120,9 +146,11 @@ impl SnowflakeGenerator {
 
         self.last_timestamp = cur_timestamp;
 
-        ((cur_timestamp << TIMESTAMP_SHIFT)
-            | (self.group_id << GROUP_ID_SHIFT)
-            | (self.worker_id << WORKER_ID_SHIFT)
-            | self.sequence)
+        Snowflake(
+            (cur_timestamp << TIMESTAMP_SHIFT)
+                | (self.group_id << GROUP_ID_SHIFT)
+                | (self.worker_id << WORKER_ID_SHIFT)
+                | self.sequence,
+        )
     }
 }

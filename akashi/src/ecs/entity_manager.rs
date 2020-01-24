@@ -66,7 +66,7 @@ pub struct EntityTypeData {
 /// manager.register_component("MyCardComponent", component_backend).unwrap();
 ///
 /// // Create a new Card, and attach some Component data to it.
-/// let mut card: Card = manager.create(123456789).unwrap();
+/// let mut card: Card = manager.create(123456789.into()).unwrap();
 /// card.set_component(MyCardComponent {
 ///     name: String::from("My Card"),
 ///     value: 100,
@@ -76,16 +76,16 @@ pub struct EntityTypeData {
 /// manager.store(card).unwrap();
 ///
 /// // It should exist in storage now.
-/// assert!(manager.exists::<Card>(123456789).unwrap());
+/// assert!(manager.exists::<Card>(123456789.into()).unwrap());
 ///
 /// // If we list stored Card IDs now, we'll see it:
 /// let card_ids = manager.keys::<Card>(0, 20).unwrap();
 /// assert_eq!(card_ids.len(), 1);
-/// assert_eq!(card_ids[0], 123456789);
+/// assert_eq!(card_ids[0], 123456789.into());
 ///
 /// {
 ///     // Load the card again from storage.
-///     let handle = manager.load::<Card>(123456789).unwrap();
+///     let handle = manager.load::<Card>(123456789.into()).unwrap();
 ///     let card = handle.get().unwrap();
 ///
 ///     // Load the component data we attached to the card earlier.
@@ -96,8 +96,8 @@ pub struct EntityTypeData {
 /// }
 ///
 /// // Finally, delete the card from storage.
-/// manager.delete::<Card>(123456789).unwrap();
-/// assert!(!manager.exists::<Card>(123456789).unwrap());
+/// manager.delete::<Card>(123456789.into()).unwrap();
+/// assert!(!manager.exists::<Card>(123456789.into()).unwrap());
 /// ```
 pub struct EntityManager {
     types: HashMap<TypeId, EntityTypeData>,
@@ -276,13 +276,13 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // Create a new Card and store it:
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
     /// let store: &Store<Card, LocalEntityStorage<Card>>;
     /// store = manager.get_store().unwrap();
     ///
-    /// assert!(store.exists(123456789).unwrap());
+    /// assert!(store.exists(123456789.into()).unwrap());
     /// ```
     pub fn get_store<'a, T, U>(&'a self) -> Option<&'a Store<T, U>>
     where
@@ -323,7 +323,7 @@ impl EntityManager {
     /// component_manager = manager.get_component_manager().unwrap();
     ///
     /// // Create a new Card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     ///
     /// // The new card will use the same ComponentManager we got back earlier.
     /// assert!(ptr::eq(card.component_manager(), &*component_manager));
@@ -360,11 +360,11 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // An object of the requested type is returned if the type was previously registered.
-    /// let card: Option<Card> = manager.create(123456789);
+    /// let card: Option<Card> = manager.create(123456789.into());
     /// assert!(card.is_some());
     ///
     /// // Otherwise, None is returned.
-    /// let player: Option<Player> = manager.create(987654321);
+    /// let player: Option<Player> = manager.create(987654321.into());
     /// assert!(player.is_none());
     /// ```
     pub fn create<T>(&self, id: Snowflake) -> Option<T>
@@ -399,11 +399,11 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // Create and store a card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
     /// // Load it again.
-    /// let handle = manager.load::<Card>(123456789).unwrap();
+    /// let handle = manager.load::<Card>(123456789.into()).unwrap();
     /// assert!(handle.get().is_some());
     /// ```
     pub fn load<T>(&self, id: Snowflake) -> Result<ReadReference<StoreHandle<T>>>
@@ -444,12 +444,12 @@ impl EntityManager {
     /// manager.register_component("MyComponent", component_backend).unwrap();
     ///
     /// // Create and store a card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
     /// {
     ///     // Load it again, mutably.
-    ///     let mut handle = manager.load_mut::<Card>(123456789).unwrap();
+    ///     let mut handle = manager.load_mut::<Card>(123456789.into()).unwrap();
     ///     let mut card = handle.get_mut().unwrap();
     ///
     ///     // Attach some data to it, then update the stored Entity.
@@ -458,7 +458,7 @@ impl EntityManager {
     /// }
     ///
     /// // Load it once more, immutably.
-    /// let handle = manager.load::<Card>(123456789).unwrap();
+    /// let handle = manager.load::<Card>(123456789.into()).unwrap();
     /// let card = handle.get().unwrap();
     ///
     /// // Get the component data we previously attached to it.
@@ -491,10 +491,10 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // Create and store a card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
-    /// assert!(manager.exists::<Card>(123456789).unwrap());
+    /// assert!(manager.exists::<Card>(123456789.into()).unwrap());
     /// ```
     pub fn store<T>(&self, entity: T) -> Result<()>
     where
@@ -537,15 +537,15 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // Create and store a card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
-    /// assert!(manager.exists::<Card>(123456789).unwrap());
+    /// assert!(manager.exists::<Card>(123456789.into()).unwrap());
     ///
     /// // Delete the card.
-    /// manager.delete::<Card>(123456789).unwrap();
+    /// manager.delete::<Card>(123456789.into()).unwrap();
     ///
-    /// assert!(!manager.exists::<Card>(123456789).unwrap());
+    /// assert!(!manager.exists::<Card>(123456789.into()).unwrap());
     /// ```
     pub fn delete<T>(&self, id: Snowflake) -> Result<()>
     where
@@ -585,14 +585,14 @@ impl EntityManager {
     /// manager.register_entity(backend).unwrap();
     ///
     /// // Create and store a card.
-    /// let card: Card = manager.create(123456789).unwrap();
+    /// let card: Card = manager.create(123456789.into()).unwrap();
     /// manager.store(card).unwrap();
     ///
     /// // Get a list of the first 20 card IDs in our storage.
     /// // This should only contain the ID of the card we just inserted.
     /// let ids = manager.keys::<Card>(0, 20).unwrap();
     /// assert_eq!(ids.len(), 1);
-    /// assert_eq!(ids[0], 123456789);
+    /// assert_eq!(ids[0], 123456789.into());
     /// ```
     pub fn keys<T>(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>
     where

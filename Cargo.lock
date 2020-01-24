@@ -284,6 +284,7 @@ dependencies = [
  "parking_lot",
  "rayon",
  "rental",
+ "serde",
  "stable_deref_trait",
 ]
 
