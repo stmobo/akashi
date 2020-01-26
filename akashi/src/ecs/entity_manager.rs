@@ -139,7 +139,7 @@ impl EntityManager {
     /// ```
     pub fn register_entity<T, U>(&mut self, backend: U) -> Result<()>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
         U: EntityBackend<T> + Sync + Send + 'static,
     {
         if self.types.contains_key(&TypeId::of::<T>()) {
@@ -196,7 +196,7 @@ impl EntityManager {
     /// ```
     pub fn register_component<T, U, V>(&mut self, name: &str, backend: V) -> Result<()>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
         U: Component<T> + 'static,
         V: ComponentBackend<T, U> + Sync + Send + 'static,
     {
@@ -225,7 +225,7 @@ impl EntityManager {
         &'a self,
     ) -> Option<(&'a (dyn EntityStore<T> + 'static), Arc<ComponentManager<T>>)>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let type_id = TypeId::of::<T>();
         let type_data = self.types.get(&type_id)?;
@@ -246,7 +246,7 @@ impl EntityManager {
 
     fn get_store_dyn<'a, T>(&'a self) -> Option<&'a (dyn EntityStore<T> + 'static)>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let type_id = TypeId::of::<T>();
         let type_data = self.types.get(&type_id)?;
@@ -286,7 +286,7 @@ impl EntityManager {
     /// ```
     pub fn get_store<'a, T, U>(&'a self) -> Option<&'a Store<T, U>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
         U: EntityBackend<T> + Sync + Send + 'static,
     {
         let type_id = TypeId::of::<T>();
@@ -330,7 +330,7 @@ impl EntityManager {
     /// ```
     pub fn get_component_manager<T>(&self) -> Option<Arc<ComponentManager<T>>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let type_id = TypeId::of::<T>();
         let type_data = self.types.get(&type_id)?;
@@ -369,7 +369,7 @@ impl EntityManager {
     /// ```
     pub fn create<T>(&self, id: Snowflake) -> Option<T>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let type_id = TypeId::of::<T>();
         let type_data = self.types.get(&type_id)?;
@@ -408,7 +408,7 @@ impl EntityManager {
     /// ```
     pub fn load<T>(&self, id: Snowflake) -> Result<ReadReference<StoreHandle<T>>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let (store, cm) = self
             .get_type_data()
@@ -467,7 +467,7 @@ impl EntityManager {
     /// ```
     pub fn load_mut<T>(&self, id: Snowflake) -> Result<WriteReference<StoreHandle<T>>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let (store, cm) = self
             .get_type_data()
@@ -498,7 +498,7 @@ impl EntityManager {
     /// ```
     pub fn store<T>(&self, entity: T) -> Result<()>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let ent_store = self
             .get_store_dyn()
@@ -513,7 +513,7 @@ impl EntityManager {
     /// Returns a write-locked reference to the handle.
     pub fn insert<T>(&self, entity: T) -> Result<WriteReference<StoreHandle<T>>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let ent_store = self
             .get_store_dyn()
@@ -549,7 +549,7 @@ impl EntityManager {
     /// ```
     pub fn delete<T>(&self, id: Snowflake) -> Result<()>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let (store, cm) = self
             .get_type_data::<T>()
@@ -561,7 +561,7 @@ impl EntityManager {
     /// Checks whether an [`Entity`] object with the given ID exists.
     pub fn exists<T>(&self, id: Snowflake) -> Result<bool>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let store = self
             .get_store_dyn::<T>()
@@ -596,7 +596,7 @@ impl EntityManager {
     /// ```
     pub fn keys<T>(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>
     where
-        T: Entity + Sync + Send + 'static,
+        T: Entity + 'static,
     {
         let store = self
             .get_store_dyn::<T>()

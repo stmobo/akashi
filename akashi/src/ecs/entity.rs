@@ -12,6 +12,7 @@ use std::fmt;
 use std::result;
 use std::sync::Arc;
 
+use dashmap::DashMap;
 use failure::{Error, Fail};
 
 /// Represents an Entity within Akashi's Entity-Component-System
@@ -34,7 +35,7 @@ use failure::{Error, Fail};
 /// types for which no backing store has been registered with
 /// [`ComponentManager::register_component`](ComponentManager::register_component)
 /// will return [`TypeNotFoundError`](TypeNotFoundError).
-pub trait Entity: Sized + 'static {
+pub trait Entity: Sized + Send + Sync + 'static {
     fn new(
         id: Snowflake,
         component_manager: Arc<ComponentManager<Self>>,
@@ -64,8 +65,22 @@ pub trait Entity: Sized + 'static {
     /// `TypeId`s.
     fn components_attached_mut(&mut self) -> &mut HashSet<TypeId>;
 
+    fn preloaded_components(
+        &self,
+    ) -> &DashMap<TypeId, Box<dyn Component<Self> + Send + Sync + 'static>>;
+
     /// Gets a [`Component`] attached to this Entity.
     fn get_component<T: Component<Self> + 'static>(&self) -> Result<Option<T>> {
+        let preloads = self.preloaded_components();
+        let preloaded_component = preloads.remove(&TypeId::of::<T>());
+        if let Some(boxed) = preloaded_component {
+            let boxed: Box<dyn Component<Self> + 'static> = boxed.1;
+            let res = boxed.downcast::<T>();
+            if let Ok(downcasted) = res {
+                return Ok(Some(*downcasted));
+            }
+        }
+
         if !self.components_attached().contains(&TypeId::of::<T>()) {
             if !self.component_manager().is_registered::<T>() {
                 Err(TypeNotFoundError::new(any::type_name::<T>().to_owned()).into())
@@ -86,6 +101,28 @@ pub trait Entity: Sized + 'static {
                 self.components_attached_mut().insert(TypeId::of::<T>());
                 *self.dirty_mut() = true;
             })
+    }
+
+    /// Attaches a preloaded [`Component`] to this Entity.
+    ///
+    /// [`Components`](Component) attached using this function will be loaded
+    /// by the next call to [`get_component`] in preference to being loaded
+    /// from registered storage backends. However, this function will not
+    /// call the storage backend to store the given component.
+    ///
+    /// This is mainly useful for `Entity` storage backend code.
+    fn preload_component<T: Component<Self> + Sync + Send + 'static>(
+        &mut self,
+        component: T,
+    ) -> Result<()> {
+        if !self.component_manager().is_registered::<T>() {
+            Err(TypeNotFoundError::new(any::type_name::<T>().to_owned()).into())
+        } else {
+            let preloads = self.preloaded_components();
+            preloads.insert(TypeId::of::<T>(), Box::new(component));
+            self.components_attached_mut().insert(TypeId::of::<T>());
+            Ok(())
+        }
     }
 
     /// Checks to see if the given [`Component`] type has

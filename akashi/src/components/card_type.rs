@@ -6,6 +6,8 @@ use crate::ecs::{Component, ComponentAdapter, ComponentManager, Entity, EntityMa
 use crate::snowflake::{Snowflake, SnowflakeGenerator};
 use crate::util::Result;
 
+use dashmap::DashMap;
+
 use std::any::TypeId;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -14,11 +16,11 @@ use std::sync::Arc;
 ///
 /// For instance, this [`Entity`](Entity) can be used to group together card data
 /// common to a specific character or other card variety.
-#[derive(Debug, Clone)]
 pub struct CardType {
     type_id: Snowflake,
     component_manager: Arc<ComponentManager<CardType>>,
     components_attached: HashSet<TypeId>,
+    component_preloads: DashMap<TypeId, Box<dyn Component<Self> + Send + Sync + 'static>>,
     dirty: bool,
 }
 
@@ -33,6 +35,7 @@ impl CardType {
             type_id,
             component_manager,
             components_attached,
+            component_preloads: DashMap::new(),
             dirty: false,
         }
     }
@@ -47,6 +50,7 @@ impl CardType {
             type_id: snowflake_gen.generate(),
             component_manager,
             components_attached: HashSet::new(),
+            component_preloads: DashMap::new(),
             dirty: false,
         }
     }
@@ -77,12 +81,30 @@ impl Entity for CardType {
         &mut self.components_attached
     }
 
+    fn preloaded_components(
+        &self,
+    ) -> &DashMap<TypeId, Box<dyn Component<Self> + Send + Sync + 'static>> {
+        &self.component_preloads
+    }
+
     fn dirty(&self) -> bool {
         self.dirty
     }
 
     fn dirty_mut(&mut self) -> &mut bool {
         &mut self.dirty
+    }
+}
+
+impl Clone for CardType {
+    fn clone(&self) -> Self {
+        Self {
+            type_id: self.type_id,
+            dirty: self.dirty,
+            component_manager: self.component_manager.clone(),
+            components_attached: self.components_attached.clone(),
+            component_preloads: DashMap::new(),
+        }
     }
 }
 

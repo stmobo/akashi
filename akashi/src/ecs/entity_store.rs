@@ -426,9 +426,7 @@ where
 /// add an intermediate concrete type that `EntityStoreDowncast` can be
 /// downcasted to, and from which we can further downcast to `EntityStore`.
 #[doc(hidden)]
-pub struct EntityStoreDowncastHelper<T: Entity + Sync + Send + 'static>(
-    pub Box<dyn EntityStore<T> + 'static>,
-);
+pub struct EntityStoreDowncastHelper<T: Entity + 'static>(pub Box<dyn EntityStore<T> + 'static>);
 
 /// A downcastable trait that allows for erasing the [`Entity`] type parameter
 /// from [`EntityStore`] trait objects.
@@ -438,7 +436,7 @@ pub struct EntityStoreDowncastHelper<T: Entity + Sync + Send + 'static>(
 pub trait EntityStoreDowncast: Downcast + Send + Sync + 'static {}
 downcast_rs::impl_downcast!(EntityStoreDowncast);
 
-impl<T: Entity + Sync + Send + 'static> EntityStoreDowncast for EntityStoreDowncastHelper<T> {}
+impl<T: Entity + 'static> EntityStoreDowncast for EntityStoreDowncastHelper<T> {}
 
 /// An interface for loading and storing [`Entities`](Entity).
 ///
@@ -451,7 +449,7 @@ impl<T: Entity + Sync + Send + 'static> EntityStoreDowncast for EntityStoreDownc
 /// overhead, though.
 pub trait EntityStore<T>: DowncastSync
 where
-    T: Entity + Sync + Send + 'static,
+    T: Entity + 'static,
 {
     fn load(
         &self,
@@ -472,11 +470,11 @@ where
     fn keys(&self, page: u64, limit: u64) -> Result<Vec<Snowflake>>;
 }
 
-downcast_rs::impl_downcast!(sync EntityStore<T> where T: Entity + Sync + Send + 'static);
+downcast_rs::impl_downcast!(sync EntityStore<T> where T: Entity + 'static);
 
 impl<T, U> EntityStore<T> for Store<T, U>
 where
-    T: Entity + Sync + Send + 'static,
+    T: Entity + 'static,
     U: EntityBackend<T> + Sync + Send + 'static,
 {
     fn load(
@@ -564,15 +562,18 @@ mod tests {
     use std::sync::{mpsc, Arc, Barrier, RwLock};
     use std::thread;
 
+    use dashmap::DashMap;
+
+    use crate::ecs::Component;
     use crate::snowflake::SnowflakeGenerator;
 
-    #[derive(Clone)]
     struct MockStoredData {
         id: Snowflake,
         field_a: String,
         field_b: u64,
         cm: Arc<ComponentManager<MockStoredData>>,
         components_attached: HashSet<TypeId>,
+        component_preloads: DashMap<TypeId, Box<dyn Component<Self> + Send + Sync + 'static>>,
         dirty: bool,
     }
 
@@ -589,6 +590,7 @@ mod tests {
                 field_b,
                 cm,
                 components_attached: HashSet::new(),
+                component_preloads: DashMap::new(),
                 dirty: false,
             }
         }
@@ -623,12 +625,32 @@ mod tests {
             &mut self.components_attached
         }
 
+        fn preloaded_components(
+            &self,
+        ) -> &DashMap<TypeId, Box<dyn Component<Self> + Send + Sync + 'static>> {
+            &self.component_preloads
+        }
+
         fn dirty(&self) -> bool {
             self.dirty
         }
 
         fn dirty_mut(&mut self) -> &mut bool {
             &mut self.dirty
+        }
+    }
+
+    impl Clone for MockStoredData {
+        fn clone(&self) -> Self {
+            Self {
+                id: self.id,
+                dirty: self.dirty,
+                cm: self.cm.clone(),
+                components_attached: self.components_attached.clone(),
+                component_preloads: DashMap::new(),
+                field_a: self.field_a.clone(),
+                field_b: self.field_b,
+            }
         }
     }
 
