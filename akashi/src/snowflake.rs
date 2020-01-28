@@ -75,6 +75,18 @@ impl From<Snowflake> for u64 {
     }
 }
 
+impl From<i64> for Snowflake {
+    fn from(val: i64) -> Snowflake {
+        Snowflake(val as u64)
+    }
+}
+
+impl From<Snowflake> for i64 {
+    fn from(val: Snowflake) -> i64 {
+        val.0 as i64
+    }
+}
+
 impl fmt::Display for Snowflake {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{}]", self.0)
